@@ -25,4 +25,12 @@ pub struct Connection {
     buffer: BytesMut,
 }
 
-impl Connection {}
+impl Connection {
+    /// Create a new `Connection` from a `TcpStream`.
+    pub fn new(stream: TcpStream) -> Self {
+        Self {
+            stream: BufWriter::new(stream),
+            buffer: BytesMut::with_capacity(4 * 1024),
+        }
+    }
+}
