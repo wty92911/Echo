@@ -1,0 +1,10 @@
+[package]
+name = "Echo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+cpal = "0.13"
+bytes = "1.9.0"
