@@ -1,28 +1,13 @@
-//! A Simple Echo Server And Client Implementation.
-//!
-//! The purpose of this project is just for fun and learning by practice.
-pub mod server;
+mod core;
+pub mod service;
 
-pub mod connection;
-pub mod frame;
-pub mod user;
-mod service;
-mod shutdown;
-
-/// Error returned by most functions.
-///
-/// When writing a real application, one might want to consider a specialized
-/// error handling crate or defining an error type as an `enum` of causes.
-/// However, for our example, using a boxed `std::error::Error` is sufficient.
-///
-/// For performance reasons, boxing is avoided in any hot path. For example, in
-/// `parse`, a custom error `enum` is defined. This is because the error is hit
-/// and handled during normal execution when a partial frame is received on a
-/// socket. `std::error::Error` is implemented for `parse::Error` which allows
-/// it to be converted to `Box<dyn std::error::Error>`.
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
-
-/// A specialized `Result` type for mini-redis operations.
-///
-/// This is defined as a convenience.
 pub type Result<T> = std::result::Result<T, Error>;
+
+use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
+
+fn generate_token() -> String {
+    let mut rng = thread_rng();
+    (0..32).map(|_| rng.sample(Alphanumeric) as char).collect()
+}

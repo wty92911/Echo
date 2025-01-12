@@ -1,11 +1,18 @@
 [package]
-name = "Echo"
+name = "echo"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+prost = "0.13"
 tokio = { version = "1.0", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
-cpal = "0.13"
-bytes = "1.9.0"
-tracing = "0.1.41"
+tonic-build = "0.12.3"
+tonic = "0.12.3"
+rand = "0.8"
+async-stream = "0.3.6"
+time = "0.3.37"
+log = "0.4.22"
+
+[build-dependencies]
+tonic-build = "*"

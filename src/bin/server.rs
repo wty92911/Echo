@@ -1,16 +1,19 @@
-use tokio::net::TcpListener;
-use tokio::signal;
-use Echo::server;
+use tonic::transport::Server;
+use echo::service::{EchoService, echo::service_server::ServiceServer};
+
 
 const DEFAULT_PORT: u16 = 7878;
+
 #[tokio::main]
-pub async fn main() -> Echo::Result<()> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let addr = "[::1]:7878".parse()?;
+    let echo_service = EchoService::default();
 
 
-    // Bind a TCP listener
-    let listener = TcpListener::bind(&format!("127.0.0.1:{}", DEFAULT_PORT)).await?;
-
-    server::run(listener, signal::ctrl_c()).await;
+    Server::builder()
+        .add_service(ServiceServer::new(echo_service))
+        .serve(addr)
+        .await?;
 
     Ok(())
 }

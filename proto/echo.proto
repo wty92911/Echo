@@ -1,0 +1,76 @@
+syntax = "proto3";
+package echo;
+
+
+service Service {
+  rpc GetUsers(GetUsersRequest) returns (GetUsersResponse);
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc Quit(QuitRequest) returns (QuitResponse);
+  rpc Listen (ListenRequest) returns (stream ListenResponse);
+  rpc Chat(stream ChatRequest) returns (ChatResponse);
+}
+
+message GetChannelsRequest {}
+
+message GetChannelsResponse {
+  repeated uint32 channels = 1;
+}
+
+message GetUsersRequest {
+  uint32 channel = 1;
+}
+
+message GetUsersResponse {
+  map<uint32, string> users = 1;
+}
+
+message LoginRequest {
+  User user = 1;
+}
+
+message LoginResponse {
+  string token = 1;
+}
+
+message QuitRequest {
+  string token = 1;
+}
+
+message QuitResponse {}
+
+message EchoRequest {
+  string token = 1;
+  Message message = 2;
+}
+
+message EchoResponse {}
+
+message ListenRequest {
+  string token = 1;
+  uint32 channel = 2;
+}
+
+message ListenResponse {
+  Message message = 1;
+}
+
+message ChatRequest {
+  string token = 1;
+  uint32 channel = 2;
+  Message message = 3;
+}
+
+message ChatResponse {
+}
+
+message User {
+  uint32 id = 1;
+  string name = 2;
+}
+
+message Message {
+  uint32 user_id = 1;
+  uint64 time_stamp = 2;
+  uint32 order = 3;
+  string message = 4;
+}
