@@ -29,16 +29,18 @@ pub struct Client {
     service_cli: ServiceClient<InterceptedService<Channel, AuthInterceptor>>,
     user_service_cli: UserServiceClient<Channel>,
 }
-
+// todo: client interceptor for token
 impl Client {
     pub async fn new(user: User) -> echo::Result<Self> {
+        println!("new client");
         let endpoint = Endpoint::from_static("http://[::1]:7878");
         let channel = endpoint.connect().await?;
 
+        println!("channel: {:?}", channel);
         let mut user_service_cli = UserServiceClient::new(channel.clone());
 
         let request = tonic::Request::new(LoginRequest { user: Some(user) });
-
+        println!("login request{:?}", request);
         let token = user_service_cli
             .login(request)
             .await?
@@ -46,6 +48,7 @@ impl Client {
             .token
             .clone();
 
+        println!("token: {}", token);
         let service_cli =
             ServiceClient::with_interceptor(channel.clone(), AuthInterceptor { token });
 

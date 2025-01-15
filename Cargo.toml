@@ -14,6 +14,7 @@ async-stream = "0.3.6"
 time = "0.3.37"
 log = "0.4.22"
 jsonwebtoken = "9.3.0"
+chrono = "0.4.39"
 
 [build-dependencies]
 tonic-build = "*"

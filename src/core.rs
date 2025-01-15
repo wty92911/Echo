@@ -1,3 +1,4 @@
+use crate::auth::Claims;
 use crate::Message;
 use crate::Result;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
@@ -6,7 +7,7 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::error::SendError;
 pub trait Auth {
-    fn verify(&self, token: &str) -> Result<u32>;
+    fn verify(&self, token: &str) -> Result<Claims>;
     fn login(&self, info: LoginInfo) -> Result<String>;
 }
 
@@ -97,7 +98,7 @@ impl EchoCore {
         let mut channel_map = self.channel_map.write().unwrap();
         let mut user_info = self.user_info_map.write().unwrap();
 
-        let user = user_info.get_mut(&user_id).unwrap();
+        let user = user_info.entry(user_id).or_default();
         if let Some(old_channel_id) = user.channel {
             channel_map
                 .get_mut(&old_channel_id)
@@ -146,10 +147,10 @@ impl EchoCore {
         user_info_map.remove(&user.id);
         Ok(())
     }
-    fn generate_token(&self, user_id: u32) -> String {
+    fn generate_token(&self, claims: Claims) -> String {
         encode(
             &Header::default(),
-            &user_id,
+            &claims,
             &EncodingKey::from_secret(self.secret.as_ref()),
         )
         .unwrap()
@@ -157,24 +158,28 @@ impl EchoCore {
 }
 
 impl Auth for EchoCore {
-    fn verify(&self, token: &str) -> Result<u32> {
-        //todo: expire time
-        decode::<u32>(
-            token,
+    fn verify(&self, token: &str) -> Result<Claims> {
+        dbg!(decode::<Claims>(
+            dbg!(token),
             &DecodingKey::from_secret(self.secret.as_ref()),
             &Validation::default(),
         )
-        .map(|user_id| user_id.claims)
-        .map_err(|e| e.into())
+        .map(|claims| claims.claims)
+        .map_err(|e| e.into()))
     }
 
     fn login(&self, info: LoginInfo) -> Result<String> {
         // todo: tts, jwt
-        let token = self.generate_token(info.user_id);
-        Ok(token)
+        let claims = Claims {
+            user_id: info.user_id,
+            exp: (chrono::Utc::now().timestamp() + 60 * 60 * 24) as usize,
+        };
+        let token = self.generate_token(claims);
+
+        Ok(dbg!(token))
     }
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct User {
     id: u32,
     name: String,
