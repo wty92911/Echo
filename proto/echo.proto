@@ -4,10 +4,13 @@ package echo;
 
 service Service {
   rpc GetUsers(GetUsersRequest) returns (GetUsersResponse);
-  rpc Login(LoginRequest) returns (LoginResponse);
   rpc Quit(QuitRequest) returns (QuitResponse);
   rpc Listen (ListenRequest) returns (stream ListenResponse);
   rpc Chat(stream ChatRequest) returns (ChatResponse);
+}
+
+service UserService {
+  rpc Login(LoginRequest) returns (LoginResponse);
 }
 
 message GetChannelsRequest {}
@@ -39,14 +42,12 @@ message QuitRequest {
 message QuitResponse {}
 
 message EchoRequest {
-  string token = 1;
   Message message = 2;
 }
 
 message EchoResponse {}
 
 message ListenRequest {
-  string token = 1;
   uint32 channel = 2;
 }
 
@@ -55,7 +56,6 @@ message ListenResponse {
 }
 
 message ChatRequest {
-  string token = 1;
   uint32 channel = 2;
   Message message = 3;
 }
