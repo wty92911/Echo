@@ -19,6 +19,8 @@ repos:
     rev: v1.8.1
     hooks:
       - id: typos
+        entry: typos
+        exclude: ^.*\.excalidraw$
   - repo: local
     hooks:
       - id: cargo-fmt

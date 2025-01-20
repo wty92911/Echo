@@ -1,76 +1,101 @@
 syntax = "proto3";
 package echo;
 
+import "google/protobuf/empty.proto";
+service ChannelService {
+  // For users
+  // List specific or all channels depending on channel's id, and only id will be useful
+  rpc List(Channel) returns (stream Channel);
+  // Create a Channel, then the user will be owner
+  rpc Create(Channel) returns (Channel);
+  // Delete some Channel which only contains id, the executor must be its owner or admin
+  rpc Delete(Channel) returns (google.protobuf.Empty);
+  // Listen or Join some channel which only contains id
+  rpc Listen (Channel) returns (ListenResponse);
 
-service Service {
-  rpc GetUsers(GetUsersRequest) returns (GetUsersResponse);
-  rpc Quit(QuitRequest) returns (QuitResponse);
-  rpc Listen (ListenRequest) returns (stream ListenResponse);
-  rpc Chat(stream ChatRequest) returns (ChatResponse);
+  // For channel servers
+  // Report something periodically
+  rpc Report(ReportRequest) returns (google.protobuf.Empty);
 }
 
+// For specific channel server
+service ChatService {
+  // For users
+  // Connect by websocket, user can send and recv message, disconnect means quit
+  rpc Conn(stream Message) returns (stream Message);
+
+  // For manager
+  // Channel's users must be empty
+  rpc Add(Channel) returns (google.protobuf.Empty);
+  // Only id
+  rpc Remove(Channel) returns (google.protobuf.Empty);
+}
+
+// Service about User Opts
 service UserService {
+  rpc Register(RegisterRequest) returns (google.protobuf.Empty);
   rpc Login(LoginRequest) returns (LoginResponse);
 }
 
-message GetChannelsRequest {}
-
-message GetChannelsResponse {
-  repeated uint32 channels = 1;
+message User {
+  string id = 1;
+  string name = 2;
 }
 
-message GetUsersRequest {
-  uint32 channel = 1;
+// TBD
+enum ChannelStatus {
+    UNKNOWN = 0;
+    IDLE = 1;
+    SERVING = 2;
 }
 
-message GetUsersResponse {
-  map<uint32, string> users = 1;
+message Channel {
+    uint32 id = 1;
+    string name = 2;
+    repeated User users = 3;
+    uint32 limit = 4; // limit the num of users
+
+}
+
+message ChannelServer {
+    string id = 1;
+    string addr = 2;
+    string name = 3;
+    repeated Channel channels = 4;
+}
+
+message ListenResponse {
+  ChannelServer server = 1; // server.channels = []
+}
+
+message ReportRequest {
+  Metric metric = 1;
+  // channels being served
+  repeated Channel channels = 2;
+}
+
+// Metric like a heartbeat
+message Metric {
+  map<string, string> kv = 1;
+}
+
+message RegisterRequest {
+  string user_id = 1;
+  string password = 2;
+  string name = 3;
 }
 
 message LoginRequest {
-  User user = 1;
+  string user_id = 1;
+  string password = 2;
 }
 
 message LoginResponse {
   string token = 1;
 }
 
-message QuitRequest {
-  string token = 1;
-}
-
-message QuitResponse {}
-
-message EchoRequest {
-  Message message = 2;
-}
-
-message EchoResponse {}
-
-message ListenRequest {
-  uint32 channel = 2;
-}
-
-message ListenResponse {
-  Message message = 1;
-}
-
-message ChatRequest {
-  uint32 channel = 2;
-  Message message = 3;
-}
-
-message ChatResponse {
-}
-
-message User {
-  uint32 id = 1;
-  string name = 2;
-}
-
 message Message {
   uint32 user_id = 1;
-  uint64 time_stamp = 2;
-  uint32 order = 3;
-  string message = 4;
+  uint64 timestamp = 2;
+  bytes data = 3;
 }
