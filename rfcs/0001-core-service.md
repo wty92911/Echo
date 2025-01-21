@@ -138,8 +138,8 @@ Below is the schema
 CREATE SCHEMA chat;
 
 CREATE TABLE chat.users (
-    id SERIAL PRIMARY KEY, -- 使用 SERIAL 自动生成唯一整数 ID
-    name VARCHAR(64) NOT NULL, -- 用户名，最大长度 255
+    id VARCHAR(64) PRIMARY KEY, -- 使用 SERIAL 自动生成唯一整数 ID
+    name VARCHAR(64) NOT NULL, -- 用户名，最大长度 64
     password_hash VARCHAR(255) NOT NULL -- 存储密码的哈希值
 );
 
