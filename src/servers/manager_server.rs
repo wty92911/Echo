@@ -1,3 +1,5 @@
+use crate::auth::{Claims, MyInterceptor};
+use crate::channel_service_server::ChannelServiceServer;
 use crate::config::Config;
 use crate::db::SqlHelper;
 use crate::error::*;
@@ -5,10 +7,11 @@ use crate::pb::{LoginRequest, LoginResponse, RegisterRequest};
 use crate::user_service_server::UserServiceServer;
 use crate::{Channel, ListenResponse, ReportRequest};
 use argon2::Argon2;
+use chrono::{Duration, Utc};
+use futures::stream::{self, Stream};
 use log::info;
 use password_hash::{PasswordHasher, SaltString};
 use std::pin::Pin;
-use tokio_stream::Stream;
 use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 #[derive(Debug)]
@@ -44,8 +47,17 @@ impl crate::user_service_server::UserService for UserService {
         let real_hash = self.sql_helper.get_user_password(&req.user_id).await?;
         if let Some(hash) = real_hash {
             if hash == password_hash {
+                let interceptor = MyInterceptor::default();
+                let expiration = Utc::now()
+                    .checked_add_signed(Duration::days(1))
+                    .unwrap()
+                    .timestamp() as usize;
+
                 Ok(Response::new(LoginResponse {
-                    token: "".to_string(),
+                    token: interceptor.encrypt(&Claims {
+                        sub: req.user_id.clone(),
+                        exp: expiration,
+                    }),
                 }))
             } else {
                 Err(Error::InvalidPassword.into())
@@ -84,7 +96,8 @@ impl crate::channel_service_server::ChannelService for ChannelService {
     type ListStream = Pin<Box<dyn Stream<Item = Result<Channel, Status>> + Send>>;
 
     async fn list(&self, _request: Request<Channel>) -> Result<Response<Self::ListStream>, Status> {
-        todo!()
+        let empty_stream = Box::pin(stream::empty());
+        Ok(Response::new(empty_stream))
     }
 
     async fn create(&self, _request: Request<Channel>) -> Result<Response<Channel>, Status> {
@@ -106,15 +119,20 @@ impl crate::channel_service_server::ChannelService for ChannelService {
 
 pub async fn start_manager_server(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     let sql_helper = SqlHelper::new(&config.db).await?;
+    let interceptor = MyInterceptor::new();
     // pgPool clones share the same connection pool.
     let user_svc = UserService::new(sql_helper.clone());
-    let _channel_svc = ChannelService::new(sql_helper);
+    let channel_svc = ChannelService::new(sql_helper);
 
     let addr: std::net::SocketAddr = config.server.url().parse()?;
     info!("start manager server at {}", addr);
 
     Server::builder()
         .add_service(UserServiceServer::new(user_svc))
+        .add_service(ChannelServiceServer::with_interceptor(
+            channel_svc,
+            interceptor,
+        ))
         .serve(addr)
         .await?;
     Ok(())
@@ -122,7 +140,13 @@ pub async fn start_manager_server(config: &Config) -> Result<(), Box<dyn std::er
 
 #[cfg(test)]
 mod tests {
-    use crate::user_service_client::UserServiceClient;
+    use std::str::FromStr;
+
+    use tonic::transport::Endpoint;
+
+    use crate::{
+        channel_service_client::ChannelServiceClient, user_service_client::UserServiceClient,
+    };
 
     use super::*;
 
@@ -130,7 +154,7 @@ mod tests {
         Config::load("./config/manager.yaml").unwrap()
     }
 
-    // from an empty database
+    // from an empty database, should run migrate.
     #[tokio::test]
     #[ignore = "should be run manually"]
     async fn test_register_and_login() {
@@ -165,5 +189,50 @@ mod tests {
             .await;
         println!("rsp: {:?}", rsp);
         assert!(rsp.is_err())
+    }
+
+    #[tokio::test]
+    #[ignore = "should be run manually"]
+    async fn test_interceptor() {
+        let config = init();
+        let addr = config.server.url_with(false);
+        let conn = Endpoint::from_str(&addr).unwrap().connect().await.unwrap();
+
+        let mut client = UserServiceClient::new(conn.clone());
+        client
+            .register(RegisterRequest {
+                user_id: "test".to_string(),
+                password: "test_password".to_string(),
+                name: "test_name".to_string(),
+            })
+            .await
+            .unwrap();
+        let mut chan_client = ChannelServiceClient::new(conn.clone());
+
+        // check invalid/no token
+        let rsp = chan_client.list(Request::new(Channel::default())).await;
+        println!("before auth token, rsp: {:?}", rsp);
+        assert!(rsp.is_err());
+
+        let token = client
+            .login(LoginRequest {
+                user_id: "test".to_string(),
+                password: "test_password".to_string(),
+            })
+            .await
+            .unwrap()
+            .into_inner()
+            .token;
+        println!("token: {:?}", token);
+
+        let mut req = Request::new(Channel::default());
+        req.metadata_mut().insert(
+            "authorization",
+            format!("Bearer {}", token).parse().unwrap(),
+        );
+        // check valid token
+        let rsp = chan_client.list(req).await;
+        println!("after auth token, rsp: {:?}", rsp);
+        assert!(rsp.is_ok());
     }
 }

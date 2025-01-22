@@ -9,6 +9,7 @@ start-up rusty project (hopefully).
 
 ## Introduction
 
+See [rfc](./rfcs/0001-core-service.md).
 ## Running
 
 
