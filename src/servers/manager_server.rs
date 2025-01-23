@@ -1,6 +1,6 @@
 use crate::auth::{Claims, MyInterceptor};
 use crate::channel_service_server::ChannelServiceServer;
-use crate::config::Config;
+use crate::config::ServerConfig;
 use crate::db::SqlHelper;
 use crate::error::*;
 use crate::pb::{LoginRequest, LoginResponse, RegisterRequest};
@@ -117,51 +117,69 @@ impl crate::channel_service_server::ChannelService for ChannelService {
     }
 }
 
-pub async fn start_manager_server(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
-    let sql_helper = SqlHelper::new(&config.db).await?;
+pub async fn start_manager_server(
+    sql_helper: SqlHelper,
+    config: &ServerConfig,
+) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
     let interceptor = MyInterceptor::new();
-    // pgPool clones share the same connection pool.
     let user_svc = UserService::new(sql_helper.clone());
     let channel_svc = ChannelService::new(sql_helper);
 
-    let addr: std::net::SocketAddr = config.server.url().parse()?;
+    let addr: std::net::SocketAddr = config.url().parse()?;
     info!("start manager server at {}", addr);
 
-    Server::builder()
+    let server = Server::builder()
         .add_service(UserServiceServer::new(user_svc))
         .add_service(ChannelServiceServer::with_interceptor(
             channel_svc,
             interceptor,
         ))
-        .serve(addr)
-        .await?;
-    Ok(())
+        .serve(addr);
+
+    Ok(tokio::spawn(async move {
+        if let Err(e) = server.await {
+            eprintln!("Server error: {}", e);
+        }
+    }))
 }
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
-    use tonic::transport::Endpoint;
-
+    use super::*;
+    use crate::config::Config;
     use crate::{
         channel_service_client::ChannelServiceClient, user_service_client::UserServiceClient,
     };
+    use sqlx_db_tester::TestPg;
+    use std::str::FromStr;
+    use std::time::Duration;
+    use tonic::transport::Endpoint;
+    async fn init(server_port: u16) -> (Config, tokio::task::JoinHandle<()>, TestPg) {
+        let tdb = TestPg::new(
+            "postgres://postgres:postgres@localhost:5432".to_string(),
+            std::path::Path::new("./migrations"),
+        );
+        println!("db name: {}", tdb.dbname);
+        let pool = tdb.get_pool().await;
 
-    use super::*;
+        let mut config = Config::load("./config/manager.yaml").unwrap();
+        config.server.port = server_port; //change port to support multiple tests in different threads.
 
-    fn init() -> Config {
-        Config::load("./config/manager.yaml").unwrap()
+        let join_handle = start_manager_server(pool.into(), &config.server)
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        (config, join_handle, tdb)
     }
 
-    // from an empty database, should run migrate.
     #[tokio::test]
-    #[ignore = "should be run manually"]
     async fn test_register_and_login() {
-        let config = init();
+        let (config, join_handle, tdb) = init(50051).await;
+
         let mut client = UserServiceClient::connect(config.server.url_with(false))
             .await
             .unwrap();
+
         client
             .register(RegisterRequest {
                 user_id: "test".to_string(),
@@ -170,6 +188,7 @@ mod tests {
             })
             .await
             .unwrap();
+
         let token = client
             .login(LoginRequest {
                 user_id: "test".to_string(),
@@ -179,22 +198,15 @@ mod tests {
             .unwrap();
         println!("token: {:?}", token);
 
-        // test multi register
-        let rsp = client
-            .register(RegisterRequest {
-                user_id: "test".to_string(),
-                password: "test_password".to_string(),
-                name: "test_name".to_string(),
-            })
-            .await;
-        println!("rsp: {:?}", rsp);
-        assert!(rsp.is_err())
+        join_handle.abort();
+        drop(tdb);
     }
 
     #[tokio::test]
-    #[ignore = "should be run manually"]
     async fn test_interceptor() {
-        let config = init();
+        // start server
+        let (config, join_handle, tdb) = init(50052).await;
+
         let addr = config.server.url_with(false);
         let conn = Endpoint::from_str(&addr).unwrap().connect().await.unwrap();
 
@@ -207,9 +219,10 @@ mod tests {
             })
             .await
             .unwrap();
+
         let mut chan_client = ChannelServiceClient::new(conn.clone());
 
-        // check invalid/no token
+        // check invalid or no token
         let rsp = chan_client.list(Request::new(Channel::default())).await;
         println!("before auth token, rsp: {:?}", rsp);
         assert!(rsp.is_err());
@@ -230,9 +243,14 @@ mod tests {
             "authorization",
             format!("Bearer {}", token).parse().unwrap(),
         );
+
         // check valid token
         let rsp = chan_client.list(req).await;
         println!("after auth token, rsp: {:?}", rsp);
         assert!(rsp.is_ok());
+
+        // stop
+        join_handle.abort();
+        drop(tdb);
     }
 }

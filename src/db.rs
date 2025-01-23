@@ -1,5 +1,5 @@
 use crate::{config::DbConfig, Result};
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use sqlx::{postgres::PgPoolOptions, PgPool, Postgres};
 #[derive(Debug, Clone)]
 pub struct SqlHelper {
     pool: PgPool,
@@ -32,5 +32,11 @@ impl SqlHelper {
                 .fetch_optional(&self.pool)
                 .await?;
         Ok(password_hash)
+    }
+}
+
+impl From<sqlx::Pool<Postgres>> for SqlHelper {
+    fn from(pool: sqlx::Pool<Postgres>) -> Self {
+        Self { pool }
     }
 }
