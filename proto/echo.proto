@@ -5,7 +5,7 @@ import "google/protobuf/empty.proto";
 service ChannelService {
   // For users
   // List specific or all channels depending on channel's id, and only id will be useful
-  rpc List(Channel) returns (stream Channel);
+  rpc List(Channel) returns (ListResponse);
   // Create a Channel, then the user will be owner
   rpc Create(Channel) returns (Channel);
   // Delete some Channel which only contains id, the executor must be its owner or admin
@@ -42,26 +42,25 @@ message User {
   string name = 2;
 }
 
-// TBD
-enum ChannelStatus {
-    UNKNOWN = 0;
-    IDLE = 1;
-    SERVING = 2;
-}
+
 
 message Channel {
-    uint32 id = 1;
-    string name = 2;
-    repeated User users = 3;
-    uint32 limit = 4; // limit the num of users
+  int32 id = 1;
+  string name = 2;
+  repeated User users = 3;
+  int32 limit = 4; // limit the num of users
 
+}
+
+message ListResponse {
+  repeated Channel channels = 1;
 }
 
 message ChannelServer {
-    string id = 1;
-    string addr = 2;
-    string name = 3;
-    repeated Channel channels = 4;
+  string id = 1;
+  string addr = 2;
+  string name = 3;
+  repeated Channel channels = 4;
 }
 
 message ListenResponse {
@@ -95,7 +94,7 @@ message LoginResponse {
 }
 
 message Message {
-  uint32 user_id = 1;
-  uint64 timestamp = 2;
+  string user_id = 1;
+  int64 timestamp = 2;
   bytes data = 3;
 }

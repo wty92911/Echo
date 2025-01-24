@@ -8,15 +8,20 @@ pub struct User {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Channel {
-    #[prost(uint32, tag = "1")]
-    pub id: u32,
+    #[prost(int32, tag = "1")]
+    pub id: i32,
     #[prost(string, tag = "2")]
     pub name: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "3")]
     pub users: ::prost::alloc::vec::Vec<User>,
     /// limit the num of users
-    #[prost(uint32, tag = "4")]
-    pub limit: u32,
+    #[prost(int32, tag = "4")]
+    pub limit: i32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ListResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub channels: ::prost::alloc::vec::Vec<Channel>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ChannelServer {
@@ -73,42 +78,12 @@ pub struct LoginResponse {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Message {
-    #[prost(uint32, tag = "1")]
-    pub user_id: u32,
-    #[prost(uint64, tag = "2")]
-    pub timestamp: u64,
+    #[prost(string, tag = "1")]
+    pub user_id: ::prost::alloc::string::String,
+    #[prost(int64, tag = "2")]
+    pub timestamp: i64,
     #[prost(bytes = "vec", tag = "3")]
     pub data: ::prost::alloc::vec::Vec<u8>,
-}
-/// TBD
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
-pub enum ChannelStatus {
-    Unknown = 0,
-    Idle = 1,
-    Serving = 2,
-}
-impl ChannelStatus {
-    /// String value of the enum field names used in the ProtoBuf definition.
-    ///
-    /// The values are not transformed in any way and thus are considered stable
-    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-    pub fn as_str_name(&self) -> &'static str {
-        match self {
-            Self::Unknown => "UNKNOWN",
-            Self::Idle => "IDLE",
-            Self::Serving => "SERVING",
-        }
-    }
-    /// Creates an enum from field names used in the ProtoBuf definition.
-    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-        match value {
-            "UNKNOWN" => Some(Self::Unknown),
-            "IDLE" => Some(Self::Idle),
-            "SERVING" => Some(Self::Serving),
-            _ => None,
-        }
-    }
 }
 /// Generated client implementations.
 pub mod channel_service_client {
@@ -205,10 +180,7 @@ pub mod channel_service_client {
         pub async fn list(
             &mut self,
             request: impl tonic::IntoRequest<super::Channel>,
-        ) -> std::result::Result<
-            tonic::Response<tonic::codec::Streaming<super::Channel>>,
-            tonic::Status,
-        > {
+        ) -> std::result::Result<tonic::Response<super::ListResponse>, tonic::Status> {
             self.inner.ready().await.map_err(|e| {
                 tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
             })?;
@@ -217,7 +189,7 @@ pub mod channel_service_client {
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("echo.ChannelService", "List"));
-            self.inner.server_streaming(req, path, codec).await
+            self.inner.unary(req, path, codec).await
         }
         /// Create a Channel, then the user will be owner
         pub async fn create(
@@ -559,17 +531,12 @@ pub mod channel_service_server {
     /// Generated trait containing gRPC methods that should be implemented for use with ChannelServiceServer.
     #[async_trait]
     pub trait ChannelService: std::marker::Send + std::marker::Sync + 'static {
-        /// Server streaming response type for the List method.
-        type ListStream: tonic::codegen::tokio_stream::Stream<
-                Item = std::result::Result<super::Channel, tonic::Status>,
-            > + std::marker::Send
-            + 'static;
         /// For users
         /// List specific or all channels depending on channel's id, and only id will be useful
         async fn list(
             &self,
             request: tonic::Request<super::Channel>,
-        ) -> std::result::Result<tonic::Response<Self::ListStream>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<super::ListResponse>, tonic::Status>;
         /// Create a Channel, then the user will be owner
         async fn create(
             &self,
@@ -668,11 +635,9 @@ pub mod channel_service_server {
                 "/echo.ChannelService/List" => {
                     #[allow(non_camel_case_types)]
                     struct ListSvc<T: ChannelService>(pub Arc<T>);
-                    impl<T: ChannelService> tonic::server::ServerStreamingService<super::Channel> for ListSvc<T> {
-                        type Response = super::Channel;
-                        type ResponseStream = T::ListStream;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
+                    impl<T: ChannelService> tonic::server::UnaryService<super::Channel> for ListSvc<T> {
+                        type Response = super::ListResponse;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::Channel>,
@@ -700,7 +665,7 @@ pub mod channel_service_server {
                                 max_decoding_message_size,
                                 max_encoding_message_size,
                             );
-                        let res = grpc.server_streaming(method, req).await;
+                        let res = grpc.unary(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)

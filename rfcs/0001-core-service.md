@@ -75,18 +75,22 @@ enum ChannelStatus {
 }
 
 message Channel {
-    uint32 id = 1;
-    string name = 2;
-    repeated User users = 3;
-    uint32 limit = 4; // limit the num of users
+  uint32 id = 1;
+  string name = 2;
+  repeated User users = 3;
+  uint32 limit = 4; // limit the num of users
 
 }
 
+message ListResponse {
+  repeated Channel channels = 1;
+}
+
 message ChannelServer {
-    string id = 1;
-    string addr = 2;
-    string name = 3;
-    repeated Channel channels = 4;
+  string id = 1;
+  string addr = 2;
+  string name = 3;
+  repeated Channel channels = 4;
 }
 
 message ListenResponse {
@@ -149,7 +153,7 @@ CREATE TABLE chat.channel {
     limit INT NOT NULL,
     owner_id INT NOT NULL,
     FOREIGN KEY (owner_id) REFERENCES chat.users(id),
-    CONSTRAINT check_limit CHECK (limit > 0)
+    CONSTRAINT check_limit CHECK (limit_num > 0 and limit_num <= 25)
 };
 
 // todo: administer of channel
