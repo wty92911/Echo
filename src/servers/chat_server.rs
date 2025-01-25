@@ -17,11 +17,11 @@ impl crate::chat_service_server::ChatService for ChatService {
         todo!()
     }
 
-    async fn add(&self, _request: Request<Channel>) -> Result<Response<()>, Status> {
+    async fn add(&self, _request: Request<Streaming<Channel>>) -> Result<Response<()>, Status> {
         todo!()
     }
 
-    async fn remove(&self, _request: Request<Channel>) -> Result<Response<()>, Status> {
+    async fn remove(&self, _request: Request<Streaming<Channel>>) -> Result<Response<()>, Status> {
         todo!()
     }
 }

@@ -11,6 +11,8 @@ pub enum Error {
     UserNotFound,
     #[error("Channel not found")]
     ChannelNotFound,
+    #[error("Server not found")]
+    ServerNotFound,
     #[error("Permission denied")]
     PermissionDenied,
 

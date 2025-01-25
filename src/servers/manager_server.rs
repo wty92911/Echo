@@ -3,16 +3,19 @@ use crate::auth::validator::Validator;
 use crate::channel_service_server::ChannelServiceServer;
 use crate::config::ServerConfig;
 use crate::db::SqlHelper;
+use crate::hash::ConsistentHash;
 use crate::pb::{LoginRequest, LoginResponse, RegisterRequest};
 use crate::user_service_server::UserServiceServer;
-use crate::{error::*, ListResponse};
+use crate::{error::*, ChannelServer, ListResponse};
 use crate::{Channel, ListenResponse, ReportRequest};
 use argon2::Argon2;
 use chrono::{Duration, Utc};
-use log::info;
+use log::{error, info};
 use password_hash::{PasswordHasher, SaltString};
-use tonic::transport::Server;
-use tonic::{Request, Response, Status};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tonic::{Request, Response, Status, Streaming};
 #[derive(Debug)]
 pub struct UserService {
     sql_helper: SqlHelper,
@@ -78,19 +81,37 @@ impl crate::user_service_server::UserService for UserService {
     }
 }
 
+/// Channel Service Implements:
+/// as core service on manager server.
+///
+/// *list, create, delete* for channels.
+///
+/// *listen* is for users to listen to some channel.
+///
+/// *report* is for chat_server to report messages.
+///
+/// ChannelService will reload all channels from database to svr_manager when it starts.
 #[derive(Debug)]
 pub struct ChannelService {
     sql_helper: SqlHelper,
+
+    svr_manager: Arc<RwLock<ServerManager>>,
 }
 
 impl ChannelService {
     pub fn new(sql_helper: SqlHelper) -> Self {
-        Self { sql_helper }
+        Self {
+            sql_helper,
+            svr_manager: Arc::new(RwLock::new(ServerManager::new())),
+        }
     }
 }
 
 #[tonic::async_trait]
 impl crate::channel_service_server::ChannelService for ChannelService {
+    /// list channels by request id
+    /// if id is empty, return all channels
+    /// if id is not empty, return channels by id
     async fn list(&self, request: Request<Channel>) -> Result<Response<ListResponse>, Status> {
         let channel_id = request.get_ref().id;
         info!("list channel request: {:?}", channel_id);
@@ -98,6 +119,7 @@ impl crate::channel_service_server::ChannelService for ChannelService {
         Ok(Response::new(ListResponse { channels }))
     }
 
+    /// create channel, generate serial number as id, and set owner
     async fn create(&self, request: Request<Channel>) -> Result<Response<Channel>, Status> {
         let channel = request.get_ref().clone();
         let user_id = request.metadata().get("user_id").unwrap().to_str().unwrap();
@@ -108,9 +130,13 @@ impl crate::channel_service_server::ChannelService for ChannelService {
 
         channel.validate()?;
         let id = self.sql_helper.insert_channel(&channel, user_id).await?;
+        self.svr_manager.write().await.add_channel(&id);
         Ok(Response::new(Channel { id, ..channel }))
     }
 
+    /// delete channel by id
+    /// check channel owner is or not the user
+    /// if not, return error
     async fn delete(&self, request: Request<Channel>) -> Result<Response<()>, Status> {
         let channel = request.get_ref();
         let user_id = request.metadata().get("user_id").unwrap().to_str().unwrap();
@@ -119,6 +145,7 @@ impl crate::channel_service_server::ChannelService for ChannelService {
             if user_id == owner_id {
                 info!("delete channel request: {:?}", channel);
                 self.sql_helper.delete_channel(&channel.id).await?;
+                self.svr_manager.write().await.delete_channel(&channel.id);
                 Ok(Response::new(()))
             } else {
                 Err(Error::PermissionDenied.into())
@@ -128,15 +155,58 @@ impl crate::channel_service_server::ChannelService for ChannelService {
         }
     }
 
-    async fn listen(&self, _request: Request<Channel>) -> Result<Response<ListenResponse>, Status> {
-        todo!()
+    /// listen to some channel
+    /// return addr of the channel's server
+    /// if channel not found, return error
+    /// don't need to check channel's logic, it will be checked on specific server.
+    async fn listen(&self, request: Request<Channel>) -> Result<Response<ListenResponse>, Status> {
+        let channel = request.get_ref();
+        let mgr = self.svr_manager.read().await;
+        let addr = mgr.get_server(&channel.id);
+        if let Some(addr) = addr {
+            Ok(Response::new(ListenResponse {
+                server: Some(ChannelServer {
+                    addr: addr.clone(),
+                    ..ChannelServer::default()
+                }),
+            }))
+        } else {
+            Err(Error::ServerNotFound.into())
+        }
     }
 
-    async fn report(&self, _request: Request<ReportRequest>) -> Result<Response<()>, Status> {
-        todo!()
+    async fn report(
+        &self,
+        request: Request<Streaming<ReportRequest>>,
+    ) -> Result<Response<()>, Status> {
+        let server_addr = request
+            .metadata()
+            .get("server_addr")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        let mgr = self.svr_manager.clone();
+
+        tokio::spawn(async move {
+            let mut mgr = mgr.write().await;
+            mgr.add_server(&server_addr);
+            // change channel's belonging server
+            let mut stream = request.into_inner();
+            while let Ok(report) = stream.message().await {
+                if let Some(_report) = report {
+                    // todo: handle report
+                    info!("report: {:?} from: {}", _report, &server_addr);
+                }
+            }
+            mgr.delete_server(&server_addr);
+        });
+
+        Ok(Response::new(()))
     }
 }
 
+// user and manager services are on manager_server
 pub async fn start_manager_server(
     sql_helper: SqlHelper,
     config: &ServerConfig,
@@ -148,7 +218,7 @@ pub async fn start_manager_server(
     let addr: std::net::SocketAddr = config.url().parse()?;
     info!("start manager server at {}", addr);
 
-    let server = Server::builder()
+    let server = tonic::transport::Server::builder()
         .add_service(UserServiceServer::new(user_svc))
         .add_service(ChannelServiceServer::with_interceptor(
             channel_svc,
@@ -161,4 +231,78 @@ pub async fn start_manager_server(
             eprintln!("Server error: {}", e);
         }
     }))
+}
+
+/// A cache for servers:
+/// like the relation of server and channel.
+///
+/// For now, range all the channels when some server status changed.
+#[derive(Debug)]
+struct ServerManager {
+    channel_to_server: HashMap<i32, String>,
+    hash: ConsistentHash,
+}
+
+impl ServerManager {
+    pub fn new() -> Self {
+        Self {
+            channel_to_server: HashMap::new(),
+            hash: ConsistentHash::new(),
+        }
+    }
+
+    // todo: use a performance method in avoid of range all the channels, and time cost will be O(N / M)
+    // N is the number of channels, M is the number of servers.
+    fn realloc(&mut self) {
+        let mut new_relation = HashMap::new();
+        for channel_id in self.channel_to_server.keys() {
+            let server = self.hash.get_server(&channel_id.to_string());
+            if let Some(server) = server {
+                new_relation.insert(*channel_id, server.clone());
+            }
+        }
+        self.channel_to_server = new_relation;
+    }
+
+    /// Add a server to the cache.
+    ///
+    /// All channels will be reallocated to some server, time cost: O(N), N is the number of channels.
+    pub fn add_server(&mut self, server: &str) {
+        self.hash.add_server(server);
+        self.realloc();
+    }
+
+    /// Delete a server from the cache.
+    ///
+    /// All channels will be reallocated to some server, time cost: O(N), N is the number of channels.
+    pub fn delete_server(&mut self, server: &str) {
+        self.hash.remove_server(server);
+        self.realloc();
+    }
+
+    /// Add a channel to the cache.
+    ///
+    /// time cost: O(1).
+    pub fn add_channel(&mut self, channel_id: &i32) {
+        let server = self.hash.get_server(&channel_id.to_string());
+        if let Some(server) = server {
+            self.channel_to_server.insert(*channel_id, server.clone());
+        } else {
+            error!("no server!");
+        }
+    }
+
+    /// Delete a channel from the cache.
+    ///
+    /// time cost: O(1).
+    pub fn delete_channel(&mut self, channel_id: &i32) {
+        self.channel_to_server.remove(channel_id);
+    }
+
+    /// Get the server that a channel is assigned to.
+    ///
+    /// time cost: O(1).
+    pub fn get_server(&self, channel_id: &i32) -> Option<&String> {
+        self.channel_to_server.get(channel_id)
+    }
 }

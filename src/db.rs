@@ -3,6 +3,7 @@ use sqlx::{
     postgres::{PgPoolOptions, PgRow},
     FromRow, PgPool, Postgres, Row,
 };
+/// SqlHelper is a helper for sqlx, concurrent safe.
 #[derive(Debug, Clone)]
 pub struct SqlHelper {
     pool: PgPool,

@@ -240,17 +240,17 @@ pub mod channel_service_client {
         /// Report something periodically
         pub async fn report(
             &mut self,
-            request: impl tonic::IntoRequest<super::ReportRequest>,
+            request: impl tonic::IntoStreamingRequest<Message = super::ReportRequest>,
         ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
             self.inner.ready().await.map_err(|e| {
                 tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
             })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/echo.ChannelService/Report");
-            let mut req = request.into_request();
+            let mut req = request.into_streaming_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("echo.ChannelService", "Report"));
-            self.inner.unary(req, path, codec).await
+            self.inner.client_streaming(req, path, codec).await
         }
     }
 }
@@ -368,32 +368,32 @@ pub mod chat_service_client {
         /// Channel's users must be empty
         pub async fn add(
             &mut self,
-            request: impl tonic::IntoRequest<super::Channel>,
+            request: impl tonic::IntoStreamingRequest<Message = super::Channel>,
         ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
             self.inner.ready().await.map_err(|e| {
                 tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
             })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/echo.ChatService/Add");
-            let mut req = request.into_request();
+            let mut req = request.into_streaming_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("echo.ChatService", "Add"));
-            self.inner.unary(req, path, codec).await
+            self.inner.client_streaming(req, path, codec).await
         }
         /// Only id
         pub async fn remove(
             &mut self,
-            request: impl tonic::IntoRequest<super::Channel>,
+            request: impl tonic::IntoStreamingRequest<Message = super::Channel>,
         ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
             self.inner.ready().await.map_err(|e| {
                 tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
             })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/echo.ChatService/Remove");
-            let mut req = request.into_request();
+            let mut req = request.into_streaming_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("echo.ChatService", "Remove"));
-            self.inner.unary(req, path, codec).await
+            self.inner.client_streaming(req, path, codec).await
         }
     }
 }
@@ -556,7 +556,7 @@ pub mod channel_service_server {
         /// Report something periodically
         async fn report(
             &self,
-            request: tonic::Request<super::ReportRequest>,
+            request: tonic::Request<tonic::Streaming<super::ReportRequest>>,
         ) -> std::result::Result<tonic::Response<()>, tonic::Status>;
     }
     #[derive(Debug)]
@@ -787,12 +787,15 @@ pub mod channel_service_server {
                 "/echo.ChannelService/Report" => {
                     #[allow(non_camel_case_types)]
                     struct ReportSvc<T: ChannelService>(pub Arc<T>);
-                    impl<T: ChannelService> tonic::server::UnaryService<super::ReportRequest> for ReportSvc<T> {
+                    impl<T: ChannelService>
+                        tonic::server::ClientStreamingService<super::ReportRequest>
+                        for ReportSvc<T>
+                    {
                         type Response = ();
                         type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::ReportRequest>,
+                            request: tonic::Request<tonic::Streaming<super::ReportRequest>>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut =
@@ -817,7 +820,7 @@ pub mod channel_service_server {
                                 max_decoding_message_size,
                                 max_encoding_message_size,
                             );
-                        let res = grpc.unary(method, req).await;
+                        let res = grpc.client_streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)
@@ -884,12 +887,12 @@ pub mod chat_service_server {
         /// Channel's users must be empty
         async fn add(
             &self,
-            request: tonic::Request<super::Channel>,
+            request: tonic::Request<tonic::Streaming<super::Channel>>,
         ) -> std::result::Result<tonic::Response<()>, tonic::Status>;
         /// Only id
         async fn remove(
             &self,
-            request: tonic::Request<super::Channel>,
+            request: tonic::Request<tonic::Streaming<super::Channel>>,
         ) -> std::result::Result<tonic::Response<()>, tonic::Status>;
     }
     /// For specific channel server
@@ -1009,12 +1012,12 @@ pub mod chat_service_server {
                 "/echo.ChatService/Add" => {
                     #[allow(non_camel_case_types)]
                     struct AddSvc<T: ChatService>(pub Arc<T>);
-                    impl<T: ChatService> tonic::server::UnaryService<super::Channel> for AddSvc<T> {
+                    impl<T: ChatService> tonic::server::ClientStreamingService<super::Channel> for AddSvc<T> {
                         type Response = ();
                         type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::Channel>,
+                            request: tonic::Request<tonic::Streaming<super::Channel>>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move { <T as ChatService>::add(&inner, request).await };
@@ -1038,7 +1041,7 @@ pub mod chat_service_server {
                                 max_decoding_message_size,
                                 max_encoding_message_size,
                             );
-                        let res = grpc.unary(method, req).await;
+                        let res = grpc.client_streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)
@@ -1046,12 +1049,12 @@ pub mod chat_service_server {
                 "/echo.ChatService/Remove" => {
                     #[allow(non_camel_case_types)]
                     struct RemoveSvc<T: ChatService>(pub Arc<T>);
-                    impl<T: ChatService> tonic::server::UnaryService<super::Channel> for RemoveSvc<T> {
+                    impl<T: ChatService> tonic::server::ClientStreamingService<super::Channel> for RemoveSvc<T> {
                         type Response = ();
                         type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::Channel>,
+                            request: tonic::Request<tonic::Streaming<super::Channel>>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut =
@@ -1076,7 +1079,7 @@ pub mod chat_service_server {
                                 max_decoding_message_size,
                                 max_encoding_message_size,
                             );
-                        let res = grpc.unary(method, req).await;
+                        let res = grpc.client_streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)

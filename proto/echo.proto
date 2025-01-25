@@ -15,7 +15,7 @@ service ChannelService {
 
   // For channel servers
   // Report something periodically
-  rpc Report(ReportRequest) returns (google.protobuf.Empty);
+  rpc Report(stream ReportRequest) returns (google.protobuf.Empty);
 }
 
 // For specific channel server
@@ -26,9 +26,9 @@ service ChatService {
 
   // For manager
   // Channel's users must be empty
-  rpc Add(Channel) returns (google.protobuf.Empty);
+  rpc Add(stream Channel) returns (google.protobuf.Empty);
   // Only id
-  rpc Remove(Channel) returns (google.protobuf.Empty);
+  rpc Remove(stream Channel) returns (google.protobuf.Empty);
 }
 
 // Service about User Opts
@@ -41,8 +41,6 @@ message User {
   string id = 1;
   string name = 2;
 }
-
-
 
 message Channel {
   int32 id = 1;
