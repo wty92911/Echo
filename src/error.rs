@@ -40,6 +40,7 @@ impl From<Error> for Status {
             Error::InvalidPassword => Status::invalid_argument("Invalid password"),
             Error::UserNotFound => Status::not_found("User not found"),
             Error::ChannelNotFound => Status::not_found("Channel not found"),
+            Error::ServerNotFound => Status::not_found("Server not found"),
             Error::PermissionDenied => Status::permission_denied("Permission denied"),
             _ => Status::internal(e.to_string()),
         }

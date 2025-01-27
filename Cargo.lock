@@ -478,6 +478,8 @@ dependencies = [
  "chrono",
  "env_logger",
  "futures",
+ "http",
+ "hyper",
  "jsonwebtoken",
  "log",
  "password-hash",
@@ -493,6 +495,7 @@ dependencies = [
  "tokio-stream",
  "tonic",
  "tonic-build",
+ "tower 0.5.2",
 ]
 
 [[package]]

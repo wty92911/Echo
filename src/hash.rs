@@ -32,7 +32,6 @@ impl Default for ConsistentHash {
         Self::new()
     }
 }
-
 impl ConsistentHash {
     /// Creates a new `ConsistentHash` instance with a default of 10 virtual nodes per server.
     ///

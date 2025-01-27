@@ -8,3 +8,4 @@ mod error;
 pub mod hash;
 pub mod servers;
 pub type Result<T> = std::result::Result<T, error::Error>;
+pub mod client;

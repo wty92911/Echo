@@ -13,5 +13,5 @@ CREATE TABLE chat.channels (
     limit_num INT NOT NULL,
     owner_id VARCHAR(64) NOT NULL,
     FOREIGN KEY (owner_id) REFERENCES chat.users(id),
-    CONSTRAINT check_limit CHECK (limit_num > 0 AND limit_num <= 25)
+    CONSTRAINT check_limit CHECK (limit_num >= 0 AND limit_num <= 25)
 );

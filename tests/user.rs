@@ -4,11 +4,11 @@ use std::str::FromStr;
 use tonic::transport::Endpoint;
 use tonic::Request;
 mod common;
-use common::server::init;
+use common::server::init_manager_server;
 
 #[tokio::test]
 async fn test_register_and_login() {
-    let (config, join_handle, tdb) = init(50051).await;
+    let (config, join_handle, tdb) = init_manager_server(50051).await;
 
     let mut client = UserServiceClient::connect(config.server.url_with(false))
         .await
@@ -38,7 +38,7 @@ async fn test_register_and_login() {
 #[tokio::test]
 async fn test_interceptor() {
     // start server
-    let (config, join_handle, tdb) = init(50052).await;
+    let (config, join_handle, tdb) = init_manager_server(50052).await;
 
     let addr = config.server.url_with(false);
     let conn = Endpoint::from_str(&addr).unwrap().connect().await.unwrap();
