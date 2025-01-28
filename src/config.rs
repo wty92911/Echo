@@ -28,6 +28,7 @@ fn default_pool_size() -> u32 {
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
+    pub secret: String,
 }
 
 impl Config {
@@ -85,6 +86,7 @@ mod tests {
                     max_connections: 5,
                 },
                 server: ServerConfig {
+                    secret: "secret".to_string(),
                     host: "0.0.0.0".to_string(),
                     port: 50051,
                 },

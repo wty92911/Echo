@@ -63,6 +63,7 @@ message ChannelServer {
 
 message ListenResponse {
   ChannelServer server = 1; // server.channels = []
+  string token = 2; // for user to connect the channel on the server
 }
 
 message ReportRequest {

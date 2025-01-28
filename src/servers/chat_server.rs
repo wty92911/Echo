@@ -1,4 +1,3 @@
-use crate::auth::interceptor::AuthTokenInterceptor;
 use crate::chat_service_server::ChatServiceServer;
 use crate::client::ChannelClient;
 use crate::ReportRequest;
@@ -10,23 +9,20 @@ use tonic::{Request, Response, Status, Streaming};
 #[derive(Debug)]
 #[allow(unused)]
 pub struct ChatService {
-    secret: &'static str,
     manager_addr: String,
-    service_addr: String,
+    config: ServerConfig,
     sql_helper: SqlHelper,
     tx: tokio::sync::mpsc::Sender<ReportRequest>,
 }
 
 impl ChatService {
-    pub async fn new(manager_addr: String, service_addr: String, sql_helper: SqlHelper) -> Self {
-        let secret = "secret"; // change it!
+    pub async fn new(manager_addr: String, config: &ServerConfig, sql_helper: SqlHelper) -> Self {
         let (tx, rx) = tokio::sync::mpsc::channel(100);
-        let mut client = ChannelClient::new(&manager_addr, secret).await;
-        client.report(service_addr.clone(), rx).await.unwrap(); // todo handle err, and deal with retrying.
+        let mut client = ChannelClient::new(&manager_addr, &config.secret).await;
+        client.report(config.url_with(false), rx).await.unwrap(); // todo handle err, and deal with retrying.
         Self {
-            secret, // change it!
             manager_addr,
-            service_addr,
+            config: config.clone(),
             sql_helper,
             tx,
         }
@@ -41,6 +37,8 @@ impl crate::chat_service_server::ChatService for ChatService {
         &self,
         _request: Request<Streaming<Message>>,
     ) -> Result<Response<Self::ConnStream>, Status> {
+        // let user_id = request.metadata().get("user_id").unwrap().to_str().unwrap();
+
         todo!()
     }
 
@@ -58,14 +56,12 @@ pub async fn start_chat_server(
     config: &ServerConfig,
     manager_addr: &str,
 ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
-    let interceptor = AuthTokenInterceptor::default();
     let addr: std::net::SocketAddr = config.url().parse()?;
     info!("start chat server at {}", addr);
 
     let server = tonic::transport::Server::builder()
-        .add_service(ChatServiceServer::with_interceptor(
-            ChatService::new(manager_addr.to_string(), config.url(), sql_helper).await,
-            interceptor,
+        .add_service(ChatServiceServer::new(
+            ChatService::new(manager_addr.to_string(), config, sql_helper).await,
         ))
         .serve(addr);
 

@@ -1,208 +1,120 @@
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tonic::{Request, Status};
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
     pub sub: String,
     pub exp: i64,
+
+    // other fields
+    pub user_id: String,
+    pub channel_id: i32,
+    pub addr: String,
 }
 
-/// Authentication interceptor on server
-#[derive(Clone)]
-pub struct AuthTokenInterceptor {
-    secret: String,
+impl Default for Claims {
+    fn default() -> Self {
+        Claims {
+            sub: "".to_string(),
+            exp: 0,
+            user_id: "".to_string(),
+            channel_id: 0,
+            addr: "".to_string(),
+        }
+    }
 }
 
-fn extract(secret: &str, token: &str) -> Result<Claims, tonic::Status> {
+pub fn extract<T: DeserializeOwned>(secret: &str, token: &str) -> Result<T, tonic::Status> {
     let decoding_key = DecodingKey::from_secret(secret.as_ref());
     let validation = Validation::new(Algorithm::HS256);
-    decode::<Claims>(token, &decoding_key, &validation)
+    decode::<T>(token, &decoding_key, &validation)
         .map(|data| data.claims)
         .map_err(|e| tonic::Status::unauthenticated(format!("Invalid token {}", e)))
 }
 
-pub fn encrypt(secret: &str, claims: &Claims) -> String {
+pub fn encrypt<T: Serialize>(secret: &str, claims: &T) -> String {
     let encoding_key = EncodingKey::from_secret(secret.as_ref());
     encode(&Header::default(), claims, &encoding_key).unwrap()
 }
 
-// for auth
-impl AuthTokenInterceptor {
-    pub fn new(secret: impl Into<String>) -> Self {
-        Self {
-            secret: secret.into(),
-        }
-    }
+/// insert token of `Claims` into request metadata
+///
+/// use `secret` to encrypt token
+pub fn intercept_token<T>(
+    mut request: Request<T>,
+    claims: impl Serialize,
+    secret: &str,
+) -> Result<Request<T>, Status> {
+    let token = encrypt(secret, &claims);
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token).parse().unwrap(),
+    );
+    Ok(request)
 }
-
-impl Default for AuthTokenInterceptor {
-    fn default() -> Self {
-        Self::new("secret")
-    }
-}
-
-impl tonic::service::Interceptor for AuthTokenInterceptor {
-    fn call(&mut self, mut request: Request<()>) -> Result<Request<()>, Status> {
-        let authorization = request
-            .metadata()
-            .get("authorization")
-            .ok_or_else(|| tonic::Status::unauthenticated("No auth token provided"))?
-            .to_str()
-            .map_err(|e| tonic::Status::unauthenticated(e.to_string()))?;
-        let token = &authorization["Bearer ".len()..];
-
-        let claims = extract(&self.secret, token)?;
-        request
-            .metadata_mut()
-            .insert("token", claims.sub.parse().unwrap());
-        Ok(request)
-    }
-}
-
-/// Client token interceptor
-pub struct ClientTokenInterceptor {
-    secret: String,
-    claims: Claims,
-}
-
-impl ClientTokenInterceptor {
-    pub fn new(secret: impl Into<String>, claims: Claims) -> Self {
-        Self {
-            secret: secret.into(),
-            claims,
-        }
-    }
-
-    pub fn call<T>(&self, mut request: Request<T>) -> Result<Request<T>, Status> {
-        let token = encrypt(&self.secret, &self.claims);
-        request.metadata_mut().insert(
-            "authorization",
-            format!("Bearer {}", token).parse().unwrap(),
-        );
-        Ok(request)
-    }
-}
-
-// impl tonic::service::Interceptor for ClientTokenInterceptor {
-//     fn call(&mut self, mut request: Request<()>) -> Result<Request<()>, Status> {
-//         let token = encrypt(&self.secret, &self.claims);
-//         request.metadata_mut().insert(
-//             "authorization",
-//             format!("Bearer {}", token).parse().unwrap(),
-//         );
-//         Ok(request)
-//     }
-// }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tonic::service::Interceptor;
     use tonic::Request;
 
-    #[test]
-    fn test_extraction_and_encryption() {
-        let interceptor = AuthTokenInterceptor::default();
-
+    #[tokio::test]
+    async fn test_extract_and_encrypt() {
+        let secret = "secret";
         let claims = Claims {
-            sub: "1234567890".to_string(),
+            sub: "123".to_string(),
             exp: 10000000000,
+            user_id: "user_123".to_string(),
+            channel_id: 1,
+            ..Default::default()
         };
-        let token = encrypt(&interceptor.secret, &claims);
 
-        let extracted_claims = extract(&interceptor.secret, &token).unwrap();
-        assert_eq!(extracted_claims.sub, "1234567890");
+        // Encrypt the claims to create a token
+        let token = encrypt(secret, &claims);
+
+        // Extract the claims from the token
+        let extracted_claims: Claims = extract(secret, &token).unwrap();
+
+        // Assert that the extracted claims match the original claims
+        assert_eq!(claims.sub, extracted_claims.sub);
+        assert_eq!(claims.exp, extracted_claims.exp);
+        assert_eq!(claims.user_id, extracted_claims.user_id);
+        assert_eq!(claims.channel_id, extracted_claims.channel_id);
     }
 
-    #[test]
-    fn test_server_interceptor() {
-        let mut interceptor = AuthTokenInterceptor::default();
-
+    #[tokio::test]
+    async fn test_intercept_token() {
+        let secret = "secret";
         let claims = Claims {
-            sub: "1234567890".to_string(),
+            sub: "123".to_string(),
             exp: 10000000000,
+            user_id: "user_123".to_string(),
+            channel_id: 1,
+            ..Default::default()
         };
-        let token = encrypt(&interceptor.secret, &claims);
 
-        let mut request = Request::new(());
-        request.metadata_mut().insert(
-            "authorization",
-            format!("Bearer {}", token).parse().unwrap(),
-        );
-
-        let result = interceptor.call(request);
-
-        assert!(result.is_ok());
-        let request = result.unwrap();
-        let token = request.metadata().get("token").unwrap().to_str().unwrap();
-        assert_eq!(token, "1234567890");
-    }
-
-    #[test]
-    fn test_client_interceptor() {
-        let claims = Claims {
-            sub: "1234567890".to_string(),
-            exp: 10000000000,
-        };
-        let interceptor = ClientTokenInterceptor::new("secret", claims);
-
+        // Create a dummy request
         let request = Request::new(());
-        let result = interceptor.call(request);
 
-        assert!(result.is_ok());
-        let request = result.unwrap();
-        let authorization = request
+        // Intercept the request with the token
+        let intercepted_request = intercept_token(request, &claims, secret).unwrap();
+
+        // Get the token from the intercepted request metadata
+        let token = intercepted_request
             .metadata()
             .get("authorization")
             .unwrap()
             .to_str()
-            .unwrap();
-        assert!(authorization.starts_with("Bearer "));
-    }
+            .unwrap()
+            .trim_start_matches("Bearer ");
 
-    #[test]
-    fn test_invalid_token_server_interceptor() {
-        let mut interceptor = AuthTokenInterceptor::default();
+        // Extract the claims from the token
+        let extracted_claims: Claims = extract(secret, token).unwrap();
 
-        let mut request = Request::new(());
-        request
-            .metadata_mut()
-            .insert("authorization", "Bearer invalid_token".parse().unwrap());
-
-        let result = interceptor.call(request);
-
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().code(), tonic::Code::Unauthenticated);
-    }
-
-    #[test]
-    fn test_missing_token_server_interceptor() {
-        let mut interceptor = AuthTokenInterceptor::default();
-
-        let request = Request::new(());
-
-        let result = interceptor.call(request);
-
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().code(), tonic::Code::Unauthenticated);
-    }
-
-    #[test]
-    fn test_token_expired_server_interceptor() {
-        let mut interceptor = AuthTokenInterceptor::default();
-
-        let mut request = Request::new(());
-
-        let claims = Claims {
-            sub: "1234567890".to_string(),
-            exp: 1,
-        };
-        let client_interceptor = ClientTokenInterceptor::new("secret", claims);
-
-        request = client_interceptor.call(request).unwrap();
-        let result = interceptor.call(request);
-        println!("result: {:?}", result);
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err().code(), tonic::Code::Unauthenticated);
+        // Assert that the extracted claims match the original claims
+        assert_eq!(claims.sub, extracted_claims.sub);
+        assert_eq!(claims.exp, extracted_claims.exp);
+        assert_eq!(claims.user_id, extracted_claims.user_id);
+        assert_eq!(claims.channel_id, extracted_claims.channel_id);
     }
 }

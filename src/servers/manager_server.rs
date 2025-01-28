@@ -1,4 +1,4 @@
-use crate::auth::interceptor::{encrypt, AuthTokenInterceptor, Claims};
+use crate::auth::interceptor::{encrypt, Claims};
 use crate::auth::validator::Validator;
 use crate::channel_service_server::ChannelServiceServer;
 use crate::config::ServerConfig;
@@ -16,17 +16,34 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status, Streaming};
+
+#[macro_export]
+macro_rules! get_claims_from {
+    ($request:expr, $secret:expr) => {{
+        let authorization = $request
+            .metadata()
+            .get("authorization")
+            .ok_or_else(|| tonic::Status::unauthenticated("No auth token provided"))?
+            .to_str()
+            .map_err(|e| tonic::Status::unauthenticated(e.to_string()))?;
+        let token = &authorization["Bearer ".len()..];
+
+        let claims: Claims = $crate::auth::interceptor::extract($secret, token)?;
+        claims
+    }};
+}
+
 #[derive(Debug)]
 pub struct UserService {
-    secret: &'static str,
+    secret: String,
     sql_helper: SqlHelper,
     hash_salt: SaltString,
 }
 
 impl UserService {
-    pub fn new(sql_helper: SqlHelper) -> Self {
+    pub fn new(secret: String, sql_helper: SqlHelper) -> Self {
         Self {
-            secret: "secret", // change it!
+            secret, // change it!
             sql_helper,
             hash_salt: SaltString::from_b64("dGhpc2lzbXlzYWx0").unwrap(),
         }
@@ -58,10 +75,11 @@ impl crate::user_service_server::UserService for UserService {
 
                 Ok(Response::new(LoginResponse {
                     token: encrypt(
-                        self.secret,
+                        &self.secret,
                         &Claims {
-                            sub: req.user_id.clone(),
                             exp: expiration,
+                            user_id: req.user_id.clone(),
+                            ..Claims::default()
                         },
                     ),
                 }))
@@ -97,14 +115,15 @@ impl crate::user_service_server::UserService for UserService {
 /// ChannelService will reload all channels from database to svr_manager when it starts.
 #[derive(Debug)]
 pub struct ChannelService {
+    config: ServerConfig,
     sql_helper: SqlHelper,
-
     svr_manager: Arc<RwLock<ServerManager>>,
 }
 
 impl ChannelService {
-    pub fn new(sql_helper: SqlHelper) -> Self {
+    pub fn new(config: &ServerConfig, sql_helper: SqlHelper) -> Self {
         Self {
+            config: config.clone(),
             sql_helper,
             svr_manager: Arc::new(RwLock::new(ServerManager::new())),
         }
@@ -117,6 +136,7 @@ impl crate::channel_service_server::ChannelService for ChannelService {
     /// if id is empty, return all channels
     /// if id is not empty, return channels by id
     async fn list(&self, request: Request<Channel>) -> Result<Response<ListResponse>, Status> {
+        let _ = get_claims_from!(request, &self.config.secret);
         let channel_id = request.get_ref().id;
         info!("list channel request: {:?}", channel_id);
         let channels = self.sql_helper.get_channels(&channel_id).await?;
@@ -126,14 +146,15 @@ impl crate::channel_service_server::ChannelService for ChannelService {
     /// create channel, generate serial number as id, and set owner
     async fn create(&self, request: Request<Channel>) -> Result<Response<Channel>, Status> {
         let channel = request.get_ref().clone();
-        let user_id = request.metadata().get("token").unwrap().to_str().unwrap();
+        let claims = get_claims_from!(request, &self.config.secret);
+        let user_id = claims.user_id;
         info!(
             "create channel request: {:?} by user: {:?}",
             channel, user_id
         );
 
         channel.validate()?;
-        let id = self.sql_helper.insert_channel(&channel, user_id).await?;
+        let id = self.sql_helper.insert_channel(&channel, &user_id).await?;
         self.svr_manager.write().await.add_channel(&id);
         Ok(Response::new(Channel { id, ..channel }))
     }
@@ -143,7 +164,8 @@ impl crate::channel_service_server::ChannelService for ChannelService {
     /// if not, return error
     async fn delete(&self, request: Request<Channel>) -> Result<Response<()>, Status> {
         let channel = request.get_ref();
-        let user_id = request.metadata().get("token").unwrap().to_str().unwrap();
+        let claims = get_claims_from!(request, &self.config.secret);
+        let user_id = claims.user_id;
         let owner_id = self.sql_helper.get_channel_owner(&channel.id).await?;
         if let Some(owner_id) = owner_id {
             if user_id == owner_id {
@@ -165,10 +187,22 @@ impl crate::channel_service_server::ChannelService for ChannelService {
     /// don't need to check channel's logic, it will be checked on specific server.
     async fn listen(&self, request: Request<Channel>) -> Result<Response<ListenResponse>, Status> {
         info!("listen channel request: {:?}", request);
+        let claims = get_claims_from!(request, &self.config.secret);
+        let user_id = claims.user_id;
         let channel = request.get_ref();
         let mgr = self.svr_manager.read().await;
         let addr = mgr.get_server(&channel.id)?;
+
         Ok(Response::new(ListenResponse {
+            token: encrypt(
+                &self.config.secret,
+                &Claims {
+                    exp: Utc::now().timestamp() + 60 * 60 * 24,
+                    user_id: user_id.to_string(),
+                    channel_id: channel.id,
+                    ..Claims::default()
+                },
+            ),
             server: Some(ChannelServer {
                 addr: addr.clone(),
                 ..ChannelServer::default()
@@ -183,13 +217,9 @@ impl crate::channel_service_server::ChannelService for ChannelService {
         request: Request<Streaming<ReportRequest>>,
     ) -> Result<Response<()>, Status> {
         info!("report request: {:?}", request);
-        let server_addr = request
-            .metadata()
-            .get("token")
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .to_string();
+        let claims = get_claims_from!(request, &self.config.secret);
+        let server_addr = claims.addr;
+
         let mgr = self.svr_manager.clone();
 
         tokio::spawn(async move {
@@ -218,19 +248,15 @@ pub async fn start_manager_server(
     sql_helper: SqlHelper,
     config: &ServerConfig,
 ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
-    let interceptor = AuthTokenInterceptor::default();
-    let user_svc = UserService::new(sql_helper.clone());
-    let channel_svc = ChannelService::new(sql_helper);
+    let user_svc = UserService::new(config.secret.clone(), sql_helper.clone());
+    let channel_svc = ChannelService::new(config, sql_helper);
 
     let addr: std::net::SocketAddr = config.url().parse()?;
     info!("start manager server at {}", addr);
 
     let server = tonic::transport::Server::builder()
         .add_service(UserServiceServer::new(user_svc))
-        .add_service(ChannelServiceServer::with_interceptor(
-            channel_svc,
-            interceptor,
-        ))
+        .add_service(ChannelServiceServer::new(channel_svc))
         .serve(addr);
 
     Ok(tokio::spawn(async move {

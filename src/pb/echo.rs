@@ -39,6 +39,9 @@ pub struct ListenResponse {
     /// server.channels = \[\]
     #[prost(message, optional, tag = "1")]
     pub server: ::core::option::Option<ChannelServer>,
+    /// for user to connect the channel on the server
+    #[prost(string, tag = "2")]
+    pub token: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ReportRequest {

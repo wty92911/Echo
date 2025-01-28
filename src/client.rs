@@ -3,13 +3,12 @@ use std::str::FromStr;
 use tokio::sync::mpsc::Receiver;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{
-    service::Interceptor,
     transport::{Channel, Endpoint},
     Request, Response, Status,
 };
 
 use crate::{
-    auth::interceptor::{Claims, ClientTokenInterceptor},
+    auth::interceptor::{intercept_token, Claims},
     channel_service_client::ChannelServiceClient,
     ReportRequest,
 };
@@ -35,26 +34,17 @@ impl ChannelClient {
         chat_server_addr: String,
         rx: Receiver<ReportRequest>,
     ) -> Result<Response<()>, Status> {
-        let interceptor = ClientTokenInterceptor::new(
-            self.secret.clone(),
-            Claims {
-                sub: chat_server_addr,
-                exp: chrono::Utc::now().timestamp() + 60 * 60 * 24 * 30,
-            },
-        );
         let stream = ReceiverStream::new(rx);
-        let req = Request::new(stream);
-        let req = interceptor.call(req)?;
+        let mut req = Request::new(stream);
+        req = intercept_token(
+            req,
+            Claims {
+                exp: chrono::Utc::now().timestamp() + 60 * 60 * 24 * 30,
+                addr: chat_server_addr,
+                ..Claims::default()
+            },
+            &self.secret,
+        )?;
         self.inner.report(req).await
-    }
-}
-
-pub fn create_interceptor(token: String) -> impl Interceptor {
-    move |mut req: Request<()>| -> Result<Request<()>, Status> {
-        req.metadata_mut().insert(
-            "authorization",
-            format!("Bearer {}", token).parse().unwrap(),
-        );
-        Ok(req)
     }
 }

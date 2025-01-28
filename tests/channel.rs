@@ -132,7 +132,7 @@ async fn test_listen() {
 
     // create 5 channels
     let mut channels = Vec::new();
-    for i in 0..5 {
+    for i in 0..20 {
         let channel = Channel {
             name: format!("channel_{}", i),
             ..Default::default()
@@ -155,20 +155,24 @@ async fn test_listen() {
     // 2. add 3 servers, use localhost:port to mock report
     let mut handles = Vec::new();
     let mut servers_addr = HashSet::new();
-    for i in 1..2 {
+    for i in 1..4 {
         let port = 50054 + i;
         let (config, handle) = init_chat_server(port, &tdb, &addr).await;
         handles.push(handle);
-        servers_addr.insert(config.server.url());
+        servers_addr.insert(config.server.url_with(false));
     }
 
     // 3. try listen, expect server in above 3 servers
-    let rsp = chan_client
-        .listen(Request::new(req_chan.clone()))
-        .await
-        .unwrap()
-        .into_inner();
-    println!("listen success: {:?}", rsp);
+    for channel in channels {
+        let req_chan = channel.clone();
+        let rsp = chan_client
+            .listen(Request::new(req_chan.clone()))
+            .await
+            .unwrap()
+            .into_inner();
+        println!("listen success: {:?}", rsp);
+        assert!(servers_addr.contains(&rsp.server.unwrap().addr));
+    }
     // assert!(servers_addr.contains(&rsp.server.unwrap().addr));
     for handle in handles {
         handle.abort();
