@@ -1,34 +1,11 @@
-use echo::{channel_service_client::ChannelServiceClient, user_service_client::UserServiceClient};
-use echo::{Channel, LoginRequest, RegisterRequest};
+use echo::channel_service_client::ChannelServiceClient;
+use echo::Channel;
 use std::collections::HashSet;
 use std::str::FromStr;
 use tonic::transport::Endpoint;
 use tonic::Request;
 mod common;
-use common::server::{create_interceptor, init_chat_server, init_manager_server};
-
-async fn register_login(id: &str, conn: tonic::transport::Channel) -> String {
-    let mut client = UserServiceClient::new(conn.clone());
-
-    client
-        .register(RegisterRequest {
-            user_id: id.to_string(),
-            password: format!("{}_password", id).to_string(),
-            name: format!("{}_name", id).to_string(),
-        })
-        .await
-        .unwrap();
-
-    client
-        .login(LoginRequest {
-            user_id: "test".to_string(),
-            password: "test_password".to_string(),
-        })
-        .await
-        .unwrap()
-        .into_inner()
-        .token
-}
+use common::server::*;
 
 // async fn create_channels()
 
@@ -40,27 +17,32 @@ async fn test_channels() {
 
     let token = register_login("test", conn.clone()).await;
 
-    let mut chan_client =
-        ChannelServiceClient::with_interceptor(conn.clone(), create_interceptor(token));
+    let mut chan_client = ChannelServiceClient::new(conn.clone());
 
     let channel1 = chan_client
-        .create(Request::new(Channel {
-            id: 0,
-            name: "test1".to_string(),
-            users: vec![],
-            limit: 5,
-        }))
+        .create(intercept_token(
+            Request::new(Channel {
+                id: 0,
+                name: "test1".to_string(),
+                users: vec![],
+                limit: 5,
+            }),
+            &token,
+        ))
         .await
         .unwrap()
         .into_inner();
 
     let channel2 = chan_client
-        .create(Request::new(Channel {
-            id: 0,
-            name: "test2".to_string(),
-            users: vec![],
-            limit: 6,
-        }))
+        .create(intercept_token(
+            Request::new(Channel {
+                id: 0,
+                name: "test2".to_string(),
+                users: vec![],
+                limit: 6,
+            }),
+            &token,
+        ))
         .await
         .unwrap()
         .into_inner();
@@ -70,7 +52,7 @@ async fn test_channels() {
         ..Channel::default()
     };
     let rsp = chan_client
-        .list(Request::new(req_chan.clone()))
+        .list(intercept_token(Request::new(req_chan.clone()), &token))
         .await
         .unwrap()
         .into_inner()
@@ -80,7 +62,7 @@ async fn test_channels() {
 
     req_chan.id = 0;
     let rsp = chan_client
-        .list(Request::new(req_chan.clone()))
+        .list(intercept_token(Request::new(req_chan.clone()), &token))
         .await
         .unwrap()
         .into_inner()
@@ -89,13 +71,15 @@ async fn test_channels() {
 
     // try delete channel2
     req_chan.id = channel2.id;
-    let rsp = chan_client.delete(Request::new(req_chan.clone())).await;
+    let rsp = chan_client
+        .delete(intercept_token(Request::new(req_chan.clone()), &token))
+        .await;
     assert!(rsp.is_ok());
 
     // list again, should be 1
     req_chan.id = 0;
     let rsp = chan_client
-        .list(Request::new(req_chan.clone()))
+        .list(intercept_token(Request::new(req_chan.clone()), &token))
         .await
         .unwrap()
         .into_inner()
@@ -106,12 +90,11 @@ async fn test_channels() {
     // use another user token
     let token = "test2".to_string();
 
-    let mut chan_client =
-        ChannelServiceClient::with_interceptor(conn.clone(), create_interceptor(token));
-
     // try delete channel1, fail
     req_chan.id = channel1.id;
-    let rsp = chan_client.delete(Request::new(req_chan.clone())).await;
+    let rsp = chan_client
+        .delete(intercept_token(Request::new(req_chan.clone()), &token))
+        .await;
     assert!(rsp.is_err());
 
     join_handle.abort();
@@ -127,8 +110,7 @@ async fn test_listen() {
     let conn = Endpoint::from_str(&addr).unwrap().connect().await.unwrap();
     let token = register_login("test", conn.clone()).await;
 
-    let mut chan_client =
-        ChannelServiceClient::with_interceptor(conn.clone(), create_interceptor(token));
+    let mut chan_client = ChannelServiceClient::new(conn.clone());
 
     // create 5 channels
     let mut channels = Vec::new();
@@ -139,7 +121,7 @@ async fn test_listen() {
         };
 
         let rsp = chan_client
-            .create(Request::new(channel.clone()))
+            .create(intercept_token(Request::new(channel.clone()), &token))
             .await
             .unwrap()
             .into_inner();
@@ -148,7 +130,9 @@ async fn test_listen() {
 
     // 1. try listen, expect server no found
     let req_chan = channels[0].clone();
-    let rsp = chan_client.listen(Request::new(req_chan.clone())).await;
+    let rsp = chan_client
+        .listen(intercept_token(Request::new(req_chan.clone()), &token))
+        .await;
     assert!(rsp.is_err());
     println!("listen failed: {:?}", rsp.unwrap_err());
 
@@ -166,7 +150,7 @@ async fn test_listen() {
     for channel in channels {
         let req_chan = channel.clone();
         let rsp = chan_client
-            .listen(Request::new(req_chan.clone()))
+            .listen(intercept_token(Request::new(req_chan.clone()), &token))
             .await
             .unwrap()
             .into_inner();

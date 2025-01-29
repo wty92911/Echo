@@ -28,7 +28,8 @@ macro_rules! get_claims_from {
             .map_err(|e| tonic::Status::unauthenticated(e.to_string()))?;
         let token = &authorization["Bearer ".len()..];
 
-        let claims: Claims = $crate::auth::interceptor::extract($secret, token)?;
+        let claims: $crate::auth::interceptor::Claims =
+            $crate::auth::interceptor::extract($secret, token)?;
         claims
     }};
 }

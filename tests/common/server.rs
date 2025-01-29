@@ -1,6 +1,8 @@
 use echo::config::Config;
+use echo::user_service_client::UserServiceClient;
+use echo::{LoginRequest, RegisterRequest};
 use std::time::Duration;
-use tonic::{service::Interceptor, Request, Status};
+use tonic::Request;
 
 use echo::servers::chat_server::start_chat_server;
 use echo::servers::manager_server::start_manager_server;
@@ -40,13 +42,36 @@ pub async fn init_chat_server(
     tokio::time::sleep(Duration::from_secs(1)).await;
     (config, join_handle)
 }
+
 #[allow(dead_code)]
-pub fn create_interceptor(token: String) -> impl Interceptor {
-    move |mut req: Request<()>| -> Result<Request<()>, Status> {
-        req.metadata_mut().insert(
-            "authorization",
-            format!("Bearer {}", token).parse().unwrap(),
-        );
-        Ok(req)
-    }
+pub fn intercept_token<T>(mut req: Request<T>, token: &str) -> Request<T> {
+    req.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", token).parse().unwrap(),
+    );
+    req
+}
+
+#[allow(dead_code)]
+pub async fn register_login(id: &str, conn: tonic::transport::Channel) -> String {
+    let mut client = UserServiceClient::new(conn.clone());
+
+    client
+        .register(RegisterRequest {
+            user_id: id.to_string(),
+            password: format!("{}_password", id).to_string(),
+            name: format!("{}_name", id).to_string(),
+        })
+        .await
+        .unwrap();
+
+    client
+        .login(LoginRequest {
+            user_id: id.to_string(),
+            password: format!("{}_password", id).to_string(),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .token
 }

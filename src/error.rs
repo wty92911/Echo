@@ -25,6 +25,10 @@ pub enum Error {
     // Validate Error
     #[error("Validate error")]
     Validate,
+
+    // Channel Chat Error
+    #[error("Channel Broadcast Stopped")]
+    ChannelBroadcastStopped,
 }
 
 impl From<sqlx::Error> for Error {
@@ -42,6 +46,7 @@ impl From<Error> for Status {
             Error::ChannelNotFound => Status::not_found("Channel not found"),
             Error::ServerNotFound => Status::not_found("Server not found"),
             Error::PermissionDenied => Status::permission_denied("Permission denied"),
+            Error::ChannelBroadcastStopped => Status::aborted("Channel Broadcast Stopped"),
             _ => Status::internal(e.to_string()),
         }
     }
