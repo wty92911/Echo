@@ -1,6 +1,5 @@
 use crate::chat_service_server::ChatServiceServer;
 use crate::client::ChannelClient;
-use crate::error::Error;
 use crate::{config::ServerConfig, db::SqlHelper, Channel, Message};
 use crate::{get_claims_from, ReportRequest};
 use chrono::Utc;
@@ -56,51 +55,147 @@ impl ChatService {
     }
 }
 
+async fn run_connection_tasks(
+    user_id: String,
+    channel_id: i32,
+    broadcast: broadcast::Sender<Message>,
+    inbound: Streaming<Message>,
+    outbound: broadcast::Receiver<Message>,
+    tx: tokio::sync::mpsc::Sender<Result<Message, Status>>,
+    shutdown_tx: broadcast::Sender<()>,
+) {
+    let inbound_task = spawn_inbound_task(
+        user_id.clone(),
+        channel_id,
+        broadcast,
+        inbound,
+        shutdown_tx.clone(),
+    );
+    let outbound_task = spawn_outbound_task(user_id.clone(), channel_id, outbound, tx, shutdown_tx);
+
+    let _ = tokio::join!(inbound_task, outbound_task); // make sure both tasks are finished
+    info!(
+        "user_id: {}, channel_id: {} fully disconnected",
+        user_id, channel_id
+    );
+}
+
+fn spawn_inbound_task(
+    user_id: String,
+    channel_id: i32,
+    broadcast: broadcast::Sender<Message>,
+    mut inbound: Streaming<Message>,
+    shutdown_tx: broadcast::Sender<()>,
+) -> tokio::task::JoinHandle<()> {
+    let mut shutdown_rx = shutdown_tx.subscribe();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                res = inbound.message() => match res {
+                    Ok(Some(mut msg)) => {
+                        msg.user_id = user_id.to_string();
+                        msg.timestamp = Utc::now().timestamp_millis();
+                        info!("receive msg: {:?} from {}-{}", msg, user_id, channel_id);
+                        broadcast.send(msg).unwrap(); // todo: handle err
+                    }
+                    Ok(None) => {
+                        info!("receive None, closing connection for {}-{}", user_id, channel_id);
+                        break;
+                    }
+                    Err(e) => {
+                        error!("inbound message receives error: {:?}", e);
+                        break;
+                    }
+                },
+                _ = shutdown_rx.recv() => {
+                    info!("inbound task received shutdown signal for {}-{}", user_id, channel_id);
+                    break;
+                }
+            }
+        }
+        info!("{}-{} inbound connection closed", user_id, channel_id);
+        let _ = shutdown_tx.send(()); // signal shutdown to the other task
+    })
+}
+
+fn spawn_outbound_task(
+    user_id: String,
+    channel_id: i32,
+    mut outbound: broadcast::Receiver<Message>,
+    tx: tokio::sync::mpsc::Sender<Result<Message, Status>>,
+    shutdown_tx: broadcast::Sender<()>,
+) -> tokio::task::JoinHandle<()> {
+    let mut shutdown_rx = shutdown_tx.subscribe();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                res = outbound.recv() => match res {
+                    Ok(msg) => {
+                        info!("send msg: {:?} to {}-{}", msg, user_id, channel_id);
+                        if let Err(err) = tx.send(Ok(msg)).await {
+                            error!("send msg to {}-{} failed: {}", user_id, channel_id, err);
+                        }
+                    }
+                    Err(_) => {
+                        error!("outbound recv error, closing connection for {}-{}", user_id, channel_id);
+                        break;
+                    }
+                },
+                _ = shutdown_rx.recv() => {
+                    info!("outbound task received shutdown signal for {}-{}", user_id, channel_id);
+                    break;
+                }
+            }
+        }
+        info!("{}-{} outbound connection closed", user_id, channel_id);
+        let _ = shutdown_tx.send(()); // signal shutdown to the other task
+    })
+}
+
 #[tonic::async_trait]
 impl crate::chat_service_server::ChatService for ChatService {
     type ConnStream = Pin<Box<dyn Stream<Item = std::result::Result<Message, Status>> + Send>>;
 
+    /// Conn takes a inbound stream and returns it's channel's broadcast stream.
+    ///
+    /// Use `tokio::select!` to ensure that the two connections are both closed when one of them disconnects.
+    ///
+    /// Set timeout to 30mins to avoid of resource wasting.
+    ///
+    /// todo: use `Redis` to limit by `user_id, channel_id` in distribute server,
+    /// only `listen` on manager server will change user-channel-state, here we just check its constraint.
     async fn conn(
         &self,
         request: Request<Streaming<Message>>,
     ) -> Result<Response<Self::ConnStream>, Status> {
         info!("conn request: {:?}", request);
         let claims = get_claims_from!(request, &self.config.secret);
-        let user_id = claims.user_id.clone();
-        let channel_id = claims.channel_id;
-        // todo: limiter by user_id, channel_id
-
-        let mut inbound = request.into_inner();
+        let (user_id, channel_id) = (claims.user_id.clone(), claims.channel_id);
         let channel_core = self.core.entry(channel_id).or_insert_with(ChannelCore::new);
+
+        // Initializing streams and channels
         let broadcast = channel_core.broadcast().clone();
+        let inbound = request.into_inner();
+        let outbound = channel_core.broadcast().subscribe();
+        let (tx, rx) = tokio::sync::mpsc::channel(32);
+        let (shutdown_tx, _) = broadcast::channel::<()>(1);
+
         tokio::spawn(async move {
-            while let Ok(msg) = inbound.message().await {
-                if let Some(mut msg) = msg {
-                    msg.user_id = user_id.clone();
-                    msg.timestamp = Utc::now().timestamp_millis();
-                    info!("receive msg: {:?} from {}-{}", msg, user_id, channel_id);
-                    broadcast.send(msg).unwrap(); // todo: handle err
-                }
-            }
-            info!("{}-{} connection closed", user_id, channel_id);
+            run_connection_tasks(
+                user_id,
+                channel_id,
+                broadcast,
+                inbound,
+                outbound,
+                tx,
+                shutdown_tx,
+            )
+            .await;
         });
 
-        let user_id = claims.user_id.clone();
-        let (tx, rx) = tokio::sync::mpsc::channel(32);
-        let mut outbound = channel_core.broadcast().subscribe();
-        tokio::spawn(async move {
-            while let Ok(msg) = outbound.recv().await {
-                info!("send msg: {:?} to {}-{}", msg, user_id, channel_id);
-                if let Err(err) = tx.send(Ok(msg)).await {
-                    error!("send msg to {}-{} failed: {}", user_id, channel_id, err);
-                }
-            }
-            let _ = tx.send(Err(Error::ChannelBroadcastStopped.into())).await; // do not consider
-            info!("{}-{} stop recv channel's broadcast", user_id, channel_id);
-        });
-        let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-        let stream = Box::pin(stream);
-        Ok(Response::new(stream))
+        Ok(Response::new(Box::pin(
+            tokio_stream::wrappers::ReceiverStream::new(rx),
+        )))
     }
 
     async fn add(&self, _request: Request<Streaming<Channel>>) -> Result<Response<()>, Status> {
