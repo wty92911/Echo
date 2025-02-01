@@ -5,7 +5,7 @@ use std::time::Duration;
 use tonic::Request;
 
 use echo::servers::chat_server::start_chat_server;
-use echo::servers::manager_server::start_manager_server;
+use echo::servers::manager::start_manager_server;
 use sqlx_db_tester::TestPg;
 pub async fn init_manager_server(
     server_port: u16,

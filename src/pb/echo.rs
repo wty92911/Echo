@@ -19,6 +19,14 @@ pub struct Channel {
     pub limit: i32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ShutdownRequest {
+    /// when empty, shutdown all users
+    #[prost(string, optional, tag = "1")]
+    pub user_id: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(int32, tag = "2")]
+    pub channel_id: i32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListResponse {
     #[prost(message, repeated, tag = "1")]
     pub channels: ::prost::alloc::vec::Vec<Channel>,
@@ -397,6 +405,21 @@ pub mod chat_service_client {
             req.extensions_mut()
                 .insert(GrpcMethod::new("echo.ChatService", "Remove"));
             self.inner.client_streaming(req, path, codec).await
+        }
+        /// Shutdown some user-channel's connection
+        pub async fn shutdown(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ShutdownRequest>,
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/echo.ChatService/Shutdown");
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("echo.ChatService", "Shutdown"));
+            self.inner.unary(req, path, codec).await
         }
     }
 }
@@ -897,6 +920,11 @@ pub mod chat_service_server {
             &self,
             request: tonic::Request<tonic::Streaming<super::Channel>>,
         ) -> std::result::Result<tonic::Response<()>, tonic::Status>;
+        /// Shutdown some user-channel's connection
+        async fn shutdown(
+            &self,
+            request: tonic::Request<super::ShutdownRequest>,
+        ) -> std::result::Result<tonic::Response<()>, tonic::Status>;
     }
     /// For specific channel server
     #[derive(Debug)]
@@ -1083,6 +1111,44 @@ pub mod chat_service_server {
                                 max_encoding_message_size,
                             );
                         let res = grpc.client_streaming(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/echo.ChatService/Shutdown" => {
+                    #[allow(non_camel_case_types)]
+                    struct ShutdownSvc<T: ChatService>(pub Arc<T>);
+                    impl<T: ChatService> tonic::server::UnaryService<super::ShutdownRequest> for ShutdownSvc<T> {
+                        type Response = ();
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ShutdownRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut =
+                                async move { <T as ChatService>::shutdown(&inner, request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = ShutdownSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)

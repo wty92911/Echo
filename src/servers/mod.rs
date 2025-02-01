@@ -1,2 +1,2 @@
 pub mod chat_server;
-pub mod manager_server;
+pub mod manager;

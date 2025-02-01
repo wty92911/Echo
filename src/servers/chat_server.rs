@@ -1,7 +1,8 @@
 use crate::chat_service_server::ChatServiceServer;
 use crate::client::ChannelClient;
+use crate::error::Error;
 use crate::{config::ServerConfig, db::SqlHelper, Channel, Message};
-use crate::{get_claims_from, ReportRequest};
+use crate::{get_claims_from, ReportRequest, ShutdownRequest};
 use chrono::Utc;
 use dashmap::DashMap;
 use log::{error, info};
@@ -26,18 +27,40 @@ pub struct ChatService {
 /// Holds all channels
 #[derive(Debug)]
 struct ChannelCore {
-    broadcast: broadcast::Sender<Message>,
+    pub broadcast: broadcast::Sender<Message>,
+    // record shutdown_tx for every user on this channel，Key is user_id
+    user_shutdown_txs: DashMap<String, broadcast::Sender<()>>,
 }
 
 impl ChannelCore {
     fn new() -> Self {
         Self {
             broadcast: broadcast::channel(32).0,
+            user_shutdown_txs: DashMap::new(),
         }
     }
 
-    pub fn broadcast(&self) -> &broadcast::Sender<Message> {
-        &self.broadcast
+    // add user's shutdown_tx
+    pub fn add_user_shutdown_tx(&self, user_id: String, shutdown_tx: broadcast::Sender<()>) {
+        self.user_shutdown_txs.insert(user_id, shutdown_tx);
+    }
+
+    // remove specific user from current channel
+    pub fn shutdown_user(&self, user_id: &str) {
+        if let Some((_, shutdown_tx)) = self.user_shutdown_txs.remove(user_id) {
+            let _ = shutdown_tx.send(()); // 发送关闭信号
+        }
+    }
+
+    pub fn exist_user(&self, user_id: &str) -> bool {
+        self.user_shutdown_txs.contains_key(user_id)
+    }
+
+    // shutdown this channel for all users
+    pub fn shutdown(&self) {
+        for shutdown_tx in self.user_shutdown_txs.iter() {
+            let _ = shutdown_tx.send(());
+        }
     }
 }
 impl ChatService {
@@ -52,6 +75,14 @@ impl ChatService {
             tx,
             core: DashMap::new(),
         }
+    }
+
+    /// shutdown by channel_id
+    pub fn shutdown(&mut self, channel_id: i32) {
+        if let Some(core) = self.core.get(&channel_id) {
+            core.shutdown();
+        }
+        self.core.remove(&channel_id);
     }
 }
 
@@ -164,21 +195,34 @@ impl crate::chat_service_server::ChatService for ChatService {
     ///
     /// todo: use `Redis` to limit by `user_id, channel_id` in distribute server,
     /// only `listen` on manager server will change user-channel-state, here we just check its constraint.
+    /// And when `listen` changes users' channel, `Redis` will send a shutdown signal to chat server.
+    ///
     async fn conn(
         &self,
         request: Request<Streaming<Message>>,
     ) -> Result<Response<Self::ConnStream>, Status> {
         info!("conn request: {:?}", request);
         let claims = get_claims_from!(request, &self.config.secret);
+        // check claims.addr is equal to localhost.
+        if claims.addr != self.config.url_with(false) {
+            return Err(Error::PermissionDenied("wrong request chat server's addr").into());
+        }
+
         let (user_id, channel_id) = (claims.user_id.clone(), claims.channel_id);
         let channel_core = self.core.entry(channel_id).or_insert_with(ChannelCore::new);
 
+        // check if user is in channel
+        if channel_core.exist_user(&user_id) {
+            return Err(Error::InvalidRequest("user already in channel").into());
+        }
+
         // Initializing streams and channels
-        let broadcast = channel_core.broadcast().clone();
+        let broadcast = channel_core.broadcast.clone();
         let inbound = request.into_inner();
-        let outbound = channel_core.broadcast().subscribe();
+        let outbound: broadcast::Receiver<Message> = channel_core.broadcast.subscribe();
         let (tx, rx) = tokio::sync::mpsc::channel(32);
         let (shutdown_tx, _) = broadcast::channel::<()>(1);
+        channel_core.add_user_shutdown_tx(user_id.clone(), shutdown_tx.clone());
 
         tokio::spawn(async move {
             run_connection_tasks(
@@ -204,6 +248,28 @@ impl crate::chat_service_server::ChatService for ChatService {
 
     async fn remove(&self, _request: Request<Streaming<Channel>>) -> Result<Response<()>, Status> {
         todo!()
+    }
+
+    /// shutdown user-channel connection for manager.
+    async fn shutdown(&self, request: Request<ShutdownRequest>) -> Result<Response<()>, Status> {
+        info!("shutdown request: {:?}", request);
+        let claims = get_claims_from!(request, &self.config.secret);
+        // check claims.addr is equal to manager's addr.
+        if claims.addr != self.config.url_with(false) {
+            return Err(Error::PermissionDenied("not manager").into());
+        }
+
+        let req = request.into_inner();
+        if let Some(channel_core) = self.core.get(&req.channel_id) {
+            if let Some(user_id) = req.user_id {
+                channel_core.shutdown_user(&user_id);
+            } else {
+                channel_core.shutdown();
+            }
+            Ok(Response::new(()))
+        } else {
+            Err(Error::ChannelNotFound.into())
+        }
     }
 }
 

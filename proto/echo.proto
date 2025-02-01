@@ -29,6 +29,8 @@ service ChatService {
   rpc Add(stream Channel) returns (google.protobuf.Empty);
   // Only id
   rpc Remove(stream Channel) returns (google.protobuf.Empty);
+  // Shutdown some user-channel's connection
+  rpc Shutdown(ShutdownRequest) returns (google.protobuf.Empty);
 }
 
 // Service about User Opts
@@ -48,6 +50,11 @@ message Channel {
   repeated User users = 3;
   int32 limit = 4; // limit the num of users
 
+}
+
+message ShutdownRequest {
+  optional string user_id = 1; // when empty, shutdown all users
+  int32 channel_id = 2;
 }
 
 message ListResponse {

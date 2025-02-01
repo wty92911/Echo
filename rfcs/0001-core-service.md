@@ -156,11 +156,25 @@ CREATE TABLE chat.channel {
     CONSTRAINT check_limit CHECK (limit_num > 0 and limit_num <= 25)
 };
 
+
+
 // todo: administer of channel
 
 // todo: history text message of channel
 
 ```
+
+## User-Channel Constraint
+
+After implementing shutdown connection signal, a user taking the old token from last `listen` request can connect to last chat server again. Here are two solving methods:
+   1. using a redis to record expired tokens.
+   2. **add a field `timestamp` in claims, and time of auth must be close to that.**
+
+Use the second method.
+
+There is a problem: a user may `listen` to different servers in a short time and `conn` to different chat-servers. In a distributed system, we cannot guarantee that "a user must be in a channel in same time". So use a limiter in `listen` to avoid that.
+
+
 # Drawbacks
 [drawbacks]: #drawbacks
 1. For now, we concentrate on core logic, so register/login we just store id and password to db.
@@ -176,7 +190,6 @@ CREATE TABLE chat.channel {
 
 # Unresolved questions
 [unresolved-questions]: #unresolved-questions
-
 
 
 # Future possibilities

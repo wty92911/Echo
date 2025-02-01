@@ -1,6 +1,6 @@
 use echo::config::Config;
 use echo::db::SqlHelper;
-use echo::servers::manager_server::start_manager_server;
+use echo::servers::manager::start_manager_server;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();

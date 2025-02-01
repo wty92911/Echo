@@ -28,6 +28,7 @@ hyper = "1.5.2"
 tower = "0.5.2"
 http = "1.2.0"
 dashmap = "6.1.0"
+async-trait = "0.1.86"
 
 [build-dependencies]
 tonic-build = "*"

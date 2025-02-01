@@ -1,4 +1,5 @@
 use tonic::Status;
+
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("Database error")]
@@ -13,8 +14,8 @@ pub enum Error {
     ChannelNotFound,
     #[error("Server not found")]
     ServerNotFound,
-    #[error("Permission denied")]
-    PermissionDenied,
+    #[error("Permission denied: `{0}`")]
+    PermissionDenied(&'static str),
 
     /// Config Error
     #[error("Config parse error")]
@@ -25,10 +26,16 @@ pub enum Error {
     // Validate Error
     #[error("Validate error")]
     Validate,
+    #[error("Invalid Request: `{0}`")]
+    InvalidRequest(&'static str),
 
     // Channel Chat Error
     #[error("Channel Broadcast Stopped")]
     ChannelBroadcastStopped,
+
+    // intercept by limiter
+    #[error("Intercepted By Limiter")]
+    Limit,
 }
 
 impl From<sqlx::Error> for Error {
@@ -45,7 +52,9 @@ impl From<Error> for Status {
             Error::UserNotFound => Status::not_found("User not found"),
             Error::ChannelNotFound => Status::not_found("Channel not found"),
             Error::ServerNotFound => Status::not_found("Server not found"),
-            Error::PermissionDenied => Status::permission_denied("Permission denied"),
+            Error::PermissionDenied(s) => {
+                Status::permission_denied(format!("Permission denied: `{}`", s))
+            }
             Error::ChannelBroadcastStopped => Status::aborted("Channel Broadcast Stopped"),
             _ => Status::internal(e.to_string()),
         }
