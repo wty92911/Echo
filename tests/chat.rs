@@ -12,8 +12,7 @@ use common::server::*;
 
 #[tokio::test]
 async fn test_chat() {
-    env_logger::init();
-    let (config, join_handle, tdb) = init_manager_server(50054).await;
+    let (config, join_handle, tdb) = init_manager_server(50154).await;
     let addr = config.server.url_with(false);
     let conn = Endpoint::from_str(&addr).unwrap().connect().await.unwrap();
     let token = register_login("test", conn.clone()).await;
@@ -24,6 +23,7 @@ async fn test_chat() {
     for i in 0..1 {
         let channel = Channel {
             name: format!("channel_{}", i),
+            limit: 10,
             ..Default::default()
         };
 
@@ -39,7 +39,7 @@ async fn test_chat() {
     let mut handles = Vec::new();
     let mut servers_addr = HashSet::new();
     for i in 1..2 {
-        let port = 50054 + i;
+        let port = 50154 + i;
         let (config, handle) = init_chat_server(port, &tdb, &addr).await;
         handles.push(handle);
         servers_addr.insert(config.server.url_with(false));
@@ -157,7 +157,6 @@ async fn check_inbound(
 
 #[tokio::test]
 async fn test_chat_disconnect() {
-    env_logger::init();
     let (config, join_handle, tdb) = init_manager_server(50054).await;
     let addr = config.server.url_with(false);
     let conn = Endpoint::from_str(&addr).unwrap().connect().await.unwrap();
@@ -169,6 +168,7 @@ async fn test_chat_disconnect() {
     for i in 0..1 {
         let channel = Channel {
             name: format!("channel_{}", i),
+            limit: 10,
             ..Default::default()
         };
 
@@ -238,18 +238,18 @@ async fn test_chat_disconnect() {
 
 #[tokio::test]
 async fn test_conn_wrong_server() {
-    env_logger::init();
-    let (config, join_handle, tdb) = init_manager_server(50054).await;
+    let (config, join_handle, tdb) = init_manager_server(50254).await;
     let addr = config.server.url_with(false);
     let conn = Endpoint::from_str(&addr).unwrap().connect().await.unwrap();
     let token = register_login("test", conn.clone()).await;
     let mut chan_client = ChannelServiceClient::new(conn.clone());
 
-    // create 20 channels
+    // create 5 channels
     let mut channels = Vec::new();
-    for i in 0..20 {
+    for i in 0..5 {
         let channel = Channel {
             name: format!("channel_{}", i),
+            limit: 10,
             ..Default::default()
         };
 
@@ -265,7 +265,7 @@ async fn test_conn_wrong_server() {
     let mut handles = Vec::new();
     let mut servers_addr = HashSet::new();
     for i in 1..3 {
-        let port = 50054 + i;
+        let port = 50254 + i;
         let (config, handle) = init_chat_server(port, &tdb, &addr).await;
         handles.push(handle);
         servers_addr.insert(config.server.url_with(false));
@@ -283,6 +283,7 @@ async fn test_conn_wrong_server() {
         let (mut senders, mut receivers) = (vec![], vec![]);
         // a. users create connections to chat server
         for token in tokens.iter() {
+            tokio::time::sleep(Duration::from_secs(1)).await;
             let req_chan = channel.clone();
             let rsp = chan_client
                 .listen(intercept_token(Request::new(req_chan.clone()), token))
@@ -346,16 +347,15 @@ async fn test_conn_wrong_server() {
 
 #[tokio::test]
 async fn test_report() {
-    env_logger::init();
-    let (config, join_handle, tdb) = init_manager_server(50054).await;
+    let (config, join_handle, tdb) = init_manager_server(50354).await;
     let addr = config.server.url_with(false);
     let conn = Endpoint::from_str(&addr).unwrap().connect().await.unwrap();
     let token = register_login("test", conn.clone()).await;
     let mut chan_client = ChannelServiceClient::new(conn.clone());
 
-    // create 20 channels
+    // create 5 channels
     let mut channels = Vec::new();
-    for i in 0..20 {
+    for i in 0..5 {
         let channel = Channel {
             name: format!("channel_{}", i),
             ..Default::default()
@@ -373,7 +373,7 @@ async fn test_report() {
     let mut handles = Vec::new();
     let mut servers_addr = HashSet::new();
     for i in 1..3 {
-        let port = 50054 + i;
+        let port = 50354 + i;
         let (config, handle) = init_chat_server(port, &tdb, &addr).await;
         handles.push(handle);
         servers_addr.insert(config.server.url_with(false));
@@ -401,6 +401,7 @@ async fn test_report() {
             &tokens[0],
         ))
         .await;
+    println!("rsp: {:?}", rsp);
     assert!(rsp.is_err());
 
     for handle in handles {

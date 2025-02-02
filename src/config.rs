@@ -29,6 +29,7 @@ pub struct ServerConfig {
     pub host: String,
     pub port: u16,
     pub secret: String,
+    pub listen_interval: u64,
     pub report_duration: u64,
     pub empty_live_time: i64,
 }
@@ -91,6 +92,7 @@ mod tests {
                     secret: "secret".to_string(),
                     host: "0.0.0.0".to_string(),
                     port: 50051,
+                    listen_interval: 1,
                     report_duration: 3,
                     empty_live_time: 30,
                 },

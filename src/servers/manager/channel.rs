@@ -46,7 +46,10 @@ impl ChannelService {
             sql_helper,
             svr_manager: Arc::new(RwLock::new(ServerManager::new())),
             channel_info: Arc::new(DashMap::new()),
-            limiter: FixedWindowLimiter::new(LimiterConfig::new(1, Duration::from_secs(3))),
+            limiter: FixedWindowLimiter::new(LimiterConfig::new(
+                1,
+                Duration::from_secs(config.listen_interval),
+            )),
         }
     }
 }
@@ -166,6 +169,7 @@ impl crate::channel_service_server::ChannelService for ChannelService {
                 empty_long_time,
                 request.into_inner(),
             )
+            .await;
         });
 
         let stream: ReceiverStream<Result<ReportResponse, Status>> =

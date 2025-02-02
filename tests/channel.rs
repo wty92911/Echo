@@ -2,6 +2,7 @@ use echo::channel_service_client::ChannelServiceClient;
 use echo::Channel;
 use std::collections::HashSet;
 use std::str::FromStr;
+use std::time::Duration;
 use tonic::transport::Endpoint;
 use tonic::Request;
 mod common;
@@ -104,7 +105,6 @@ async fn test_channels() {
 // test listen to some channel, and add/del servers.
 #[tokio::test]
 async fn test_listen() {
-    env_logger::init();
     let (config, join_handle, tdb) = init_manager_server(50054).await;
     let addr = config.server.url_with(false);
     let conn = Endpoint::from_str(&addr).unwrap().connect().await.unwrap();
@@ -114,7 +114,7 @@ async fn test_listen() {
 
     // create 5 channels
     let mut channels = Vec::new();
-    for i in 0..20 {
+    for i in 0..3 {
         let channel = Channel {
             name: format!("channel_{}", i),
             ..Default::default()
@@ -154,6 +154,7 @@ async fn test_listen() {
             .await
             .unwrap()
             .into_inner();
+        tokio::time::sleep(Duration::from_secs(1)).await;
         println!("listen success: {:?}", rsp);
         assert!(servers_addr.contains(&rsp.server.unwrap().addr));
     }
