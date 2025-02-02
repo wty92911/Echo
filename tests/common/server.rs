@@ -16,7 +16,7 @@ pub async fn init_manager_server(
     );
     println!("db name: {}", tdb.dbname);
     let pool = tdb.get_pool().await;
-    let mut config = Config::load("./config/manager.yaml").unwrap();
+    let mut config = Config::load("./config/manager_test.yaml").unwrap();
     config.server.port = server_port; //change port to support multiple tests in different threads.
 
     let join_handle = start_manager_server(pool.into(), &config.server)

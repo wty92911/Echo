@@ -59,7 +59,7 @@ impl ChannelCore {
     // remove specific user from current channel
     fn shutdown_user(&self, user_id: &str) {
         if let Some((_, shutdown_tx)) = self.user_shutdown_txs.remove(user_id) {
-            let _ = shutdown_tx.send(()); // 发送关闭信号
+            let _ = shutdown_tx.send(());
         }
     }
 
@@ -104,6 +104,7 @@ impl ChatService {
                 if let Some(rsp) = rsp {
                     // 1. check shutdown signal
                     if let Some(req) = rsp.shutdown {
+                        info!("shutdown channel: {}", req.channel_id);
                         if let Some(channel_core) = core.get(&req.channel_id) {
                             if let Some(user_id) = req.user_id {
                                 channel_core.shutdown_user(&user_id);
@@ -315,9 +316,10 @@ impl crate::chat_service_server::ChatService for ChatService {
         let (shutdown_tx, _) = broadcast::channel::<()>(1);
         channel_core.add_user_shutdown_tx(user_id.clone(), shutdown_tx.clone());
 
+        let core: Arc<DashMap<i32, ChannelCore>> = Arc::clone(&self.core);
         tokio::spawn(async move {
             run_connection_tasks(
-                user_id,
+                user_id.clone(),
                 channel_id,
                 broadcast,
                 inbound,
@@ -326,6 +328,10 @@ impl crate::chat_service_server::ChatService for ChatService {
                 shutdown_tx,
             )
             .await;
+            // to remove user from channel
+            if let Some(channel_core) = core.get_mut(&channel_id) {
+                channel_core.shutdown_user(&user_id);
+            }
         });
         Ok(Response::new(Box::pin(
             tokio_stream::wrappers::ReceiverStream::new(rx),
@@ -342,25 +348,8 @@ impl crate::chat_service_server::ChatService for ChatService {
 
     /// deprecated
     /// shutdown user-channel connection for manager.
-    async fn shutdown(&self, request: Request<ShutdownRequest>) -> Result<Response<()>, Status> {
-        info!("shutdown request: {:?}", request);
-        let claims = get_claims_from!(request, &self.config.secret);
-        // check claims.addr is equal to manager's addr.
-        if claims.addr != self.config.url_with(false) {
-            return Err(Error::PermissionDenied("not manager").into());
-        }
-
-        let req = request.into_inner();
-        if let Some(channel_core) = self.core.get(&req.channel_id) {
-            if let Some(user_id) = req.user_id {
-                channel_core.shutdown_user(&user_id);
-            } else {
-                self.core.remove(&req.channel_id);
-            }
-            Ok(Response::new(()))
-        } else {
-            Err(Error::ChannelNotFound.into())
-        }
+    async fn shutdown(&self, _request: Request<ShutdownRequest>) -> Result<Response<()>, Status> {
+        todo!()
     }
 }
 

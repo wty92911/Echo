@@ -59,12 +59,29 @@ impl crate::channel_service_server::ChannelService for ChannelService {
     /// list channels by request id
     /// if id is empty, return all channels
     /// if id is not empty, return channels by id
+    /// todo: change request.channel_id to vec![]
     async fn list(&self, request: Request<Channel>) -> Result<Response<ListResponse>, Status> {
-        // todo: load channel from channel_info
+        // Load channel ID from the request
         let _ = get_claims_from!(request, &self.config.secret);
         let channel_id = request.get_ref().id;
         info!("list channel request: {:?}", channel_id);
-        let channels = self.sql_helper.get_channels(&channel_id).await?;
+
+        // Retrieve channels based on the channel_id
+        let mut channels: Vec<Channel> = if channel_id == 0 {
+            self.channel_info
+                .iter()
+                .map(|v| v.value().clone())
+                .collect()
+        } else {
+            self.channel_info
+                .get(&channel_id)
+                .map_or(vec![], |v| vec![v.clone()])
+        };
+
+        if channels.is_empty() {
+            // Alternatively, get channels from SQL helper
+            channels = self.sql_helper.get_channels(&channel_id).await?;
+        }
         Ok(Response::new(ListResponse { channels }))
     }
 
@@ -231,6 +248,7 @@ async fn handle_report(
 
 // help to check long empty channel
 // true: long empty channel
+// todo: teset it
 fn check_long_empty_channel(
     channel: &Channel,
     empty_chn_ts: &mut HashMap<i32, i64>,

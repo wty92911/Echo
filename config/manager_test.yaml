@@ -1,0 +1,13 @@
+db:
+  host: localhost
+  port: 5432
+  user: postgres
+  dbname: chat
+  password: postgres
+server:
+  host: 0.0.0.0
+  port: 50051
+  secret: secret # for JWT token
+  listen_interval: 1
+  report_duration: 1 # for chat server
+  empty_live_time: 2 # max live time for empty channels

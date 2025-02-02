@@ -358,6 +358,7 @@ async fn test_report() {
     for i in 0..5 {
         let channel = Channel {
             name: format!("channel_{}", i),
+            limit: 10,
             ..Default::default()
         };
 
@@ -403,6 +404,56 @@ async fn test_report() {
         .await;
     println!("rsp: {:?}", rsp);
     assert!(rsp.is_err());
+
+    // only test first one
+    for channel in channels {
+        // a. users create connections to chat server
+        for token in tokens.iter() {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            let req_chan = channel.clone();
+            let rsp = chan_client
+                .listen(intercept_token(Request::new(req_chan.clone()), token))
+                .await
+                .unwrap()
+                .into_inner();
+
+            let chat_token = rsp.token;
+            let chat_addr = rsp.server.unwrap().addr;
+            let chat_conn = Endpoint::from_str(&chat_addr)
+                .unwrap()
+                .connect()
+                .await
+                .unwrap();
+            let mut chat_client = ChatServiceClient::new(chat_conn);
+
+            let (tx, rx) = tokio::sync::mpsc::channel(10);
+            let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+            let req = intercept_token(Request::new(stream), &chat_token);
+
+            let _inbound = chat_client.conn(req).await.unwrap().into_inner();
+
+            tokio::time::sleep(Duration::from_secs(3)).await;
+            // check list channels
+
+            let req = intercept_token(Request::new(channel.clone()), &chat_token);
+            let rsp = chan_client.list(req).await.unwrap().into_inner();
+            println!("rsp: {:?}", rsp);
+            assert_eq!(rsp.channels.len(), 1);
+            assert_eq!(rsp.channels[0].users.len(), 1);
+            assert_eq!(rsp.channels[0].users[0].id, "test_1");
+
+            // disconnect
+            drop(tx);
+            tokio::time::sleep(Duration::from_secs(3)).await;
+
+            // check list channels
+            let req = intercept_token(Request::new(channel.clone()), &chat_token);
+            let rsp = chan_client.list(req).await.unwrap().into_inner();
+            println!("rsp: {:?}", rsp);
+            assert_eq!(rsp.channels.len(), 1);
+            assert_eq!(rsp.channels[0].users.len(), 0);
+        }
+    }
 
     for handle in handles {
         handle.abort();
