@@ -24,6 +24,7 @@ impl ServerManager {
 
     // todo: use a performance method in avoid of range all the channels, and time cost will be O(N / M)
     // N is the number of channels, M is the number of servers.
+    // for changed channel, send shutdown signal to its old server.
     fn realloc(&mut self) {
         for (channel_id, server) in self.channel_to_server.iter_mut() {
             *server = self.hash.get_server(&channel_id.to_string()).cloned()

@@ -7,8 +7,8 @@ use crate::servers::manager::server::ServerManager;
 use crate::{error::*, get_claims_from, ChannelServer, ListResponse};
 use crate::{Channel, ListenResponse, ReportRequest};
 use chrono::Utc;
-use log::info;
-use std::collections::HashSet;
+use dashmap::DashMap;
+use log::{error, info};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -24,11 +24,14 @@ use tonic::{Request, Response, Status, Streaming};
 /// *report* is for chat_server to report messages.
 ///
 /// ChannelService will reload all channels from database to svr_manager when it starts.
+///
+/// todo: client to communicate with chat server.
 #[derive(Debug)]
 pub struct ChannelService {
     config: ServerConfig,
     sql_helper: SqlHelper,
     svr_manager: Arc<RwLock<ServerManager>>,
+    channel_info: Arc<DashMap<i32, Channel>>, // channel info from servers
 
     limiter: FixedWindowLimiter,
 }
@@ -39,7 +42,7 @@ impl ChannelService {
             config: config.clone(),
             sql_helper,
             svr_manager: Arc::new(RwLock::new(ServerManager::new())),
-
+            channel_info: Arc::new(DashMap::new()),
             limiter: FixedWindowLimiter::new(LimiterConfig::new(1, Duration::from_secs(3))),
         }
     }
@@ -51,6 +54,7 @@ impl crate::channel_service_server::ChannelService for ChannelService {
     /// if id is empty, return all channels
     /// if id is not empty, return channels by id
     async fn list(&self, request: Request<Channel>) -> Result<Response<ListResponse>, Status> {
+        // todo: load channel from channel_info
         let _ = get_claims_from!(request, &self.config.secret);
         let channel_id = request.get_ref().id;
         info!("list channel request: {:?}", channel_id);
@@ -77,6 +81,7 @@ impl crate::channel_service_server::ChannelService for ChannelService {
     /// delete channel by id
     /// check channel owner is or not the user
     /// if not, return error
+    /// check channel is not using, give server a shutdown signal
     async fn delete(&self, request: Request<Channel>) -> Result<Response<()>, Status> {
         let channel = request.get_ref();
         let claims = get_claims_from!(request, &self.config.secret);
@@ -143,7 +148,7 @@ impl crate::channel_service_server::ChannelService for ChannelService {
         let server_addr = claims.addr;
 
         let mgr = self.svr_manager.clone();
-
+        let channel_info = self.channel_info.clone();
         tokio::spawn(async move {
             info!("add server: {}", server_addr);
             // if use let mgr = mgr.write().await, we will drop mgr after this line.
@@ -152,9 +157,22 @@ impl crate::channel_service_server::ChannelService for ChannelService {
             // change channel's belonging server
             let mut stream = request.into_inner();
             while let Ok(report) = stream.message().await {
-                if let Some(_report) = report {
-                    // todo: handle report
-                    info!("report: {:?} from: {}", _report, &server_addr);
+                if let Some(report) = report {
+                    // todo: handle metric
+                    info!("report: {:?} from: {}", report, &server_addr);
+                    for channel in report.channels.into_iter() {
+                        // check if channel is not belong to server, todo: shutdown and why it exists?
+                        if let Ok(addr) = mgr.read().await.get_server(&channel.id) {
+                            if addr == server_addr {
+                                // accept it
+                                channel_info.insert(channel.id, channel);
+                            } else {
+                                error!("server: {:?} takes channel: {:?}, but it actually belongs to server: {:?}", server_addr, channel, addr);
+                            }
+                        } else {
+                            error!("channel: {:?} doesn't belong to any server", channel);
+                        }
+                    }
                 }
             }
 
@@ -163,11 +181,4 @@ impl crate::channel_service_server::ChannelService for ChannelService {
 
         Ok(Response::new(()))
     }
-}
-
-#[allow(dead_code)]
-pub struct ChannelInfo {
-    server_addr: Option<String>, // we tolerate no server at cold start
-    users: HashSet<String>,
-    limit: i32,
 }

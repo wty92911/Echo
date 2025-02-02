@@ -2,12 +2,15 @@ use crate::chat_service_server::ChatServiceServer;
 use crate::client::ChannelClient;
 use crate::error::Error;
 use crate::{config::ServerConfig, db::SqlHelper, Channel, Message};
-use crate::{get_claims_from, ReportRequest, ShutdownRequest};
+use crate::{get_claims_from, ReportRequest, ShutdownRequest, User};
 use chrono::Utc;
 use dashmap::DashMap;
 use log::{error, info};
 use std::pin::Pin;
+use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::broadcast;
+use tokio::sync::mpsc::Sender;
 use tokio_stream::Stream;
 use tonic::{Request, Response, Status, Streaming};
 #[derive(Debug)]
@@ -16,25 +19,29 @@ pub struct ChatService {
     manager_addr: String,
     config: ServerConfig,
     sql_helper: SqlHelper,
-    tx: tokio::sync::mpsc::Sender<ReportRequest>,
 
     // for chat
-    core: DashMap<i32, ChannelCore>,
+    core: Arc<DashMap<i32, ChannelCore>>, // drop channel when no one exists
 }
 
 /// !Concurrent Safe Channel Core Logic
 ///
-/// Holds all channels
 #[derive(Debug)]
 struct ChannelCore {
+    pub id: i32,
+    pub name: String,
+    pub limit: i32,
     pub broadcast: broadcast::Sender<Message>,
     // record shutdown_tx for every user on this channel，Key is user_id
     user_shutdown_txs: DashMap<String, broadcast::Sender<()>>,
 }
 
 impl ChannelCore {
-    fn new() -> Self {
+    fn new(channel: Channel) -> Self {
         Self {
+            id: channel.id,
+            name: channel.name,
+            limit: channel.limit,
             broadcast: broadcast::channel(32).0,
             user_shutdown_txs: DashMap::new(),
         }
@@ -46,7 +53,7 @@ impl ChannelCore {
     }
 
     // remove specific user from current channel
-    pub fn shutdown_user(&self, user_id: &str) {
+    fn shutdown_user(&self, user_id: &str) {
         if let Some((_, shutdown_tx)) = self.user_shutdown_txs.remove(user_id) {
             let _ = shutdown_tx.send(()); // 发送关闭信号
         }
@@ -55,34 +62,74 @@ impl ChannelCore {
     pub fn exist_user(&self, user_id: &str) -> bool {
         self.user_shutdown_txs.contains_key(user_id)
     }
+}
 
-    // shutdown this channel for all users
-    pub fn shutdown(&self) {
+impl Drop for ChannelCore {
+    fn drop(&mut self) {
         for shutdown_tx in self.user_shutdown_txs.iter() {
             let _ = shutdown_tx.send(());
         }
+        self.user_shutdown_txs.clear();
     }
 }
 impl ChatService {
     pub async fn new(manager_addr: String, config: &ServerConfig, sql_helper: SqlHelper) -> Self {
-        let (tx, rx) = tokio::sync::mpsc::channel(100);
-        let mut client = ChannelClient::new(&manager_addr, &config.secret).await;
-        client.report(config.url_with(false), rx).await.unwrap(); // todo handle err, and deal with retrying.
         Self {
             manager_addr,
             config: config.clone(),
             sql_helper,
-            tx,
-            core: DashMap::new(),
+            core: Arc::new(DashMap::new()),
         }
+        .register()
+        .await
     }
 
-    /// shutdown by channel_id
-    pub fn shutdown(&mut self, channel_id: i32) {
-        if let Some(core) = self.core.get(&channel_id) {
-            core.shutdown();
-        }
-        self.core.remove(&channel_id);
+    // register chat service on manager
+    async fn register(self) -> Self {
+        let (tx, rx) = tokio::sync::mpsc::channel(100);
+        let mut client = ChannelClient::new(&self.manager_addr, &self.config.secret).await;
+        client
+            .report(self.config.url_with(false), rx)
+            .await
+            .unwrap(); // todo handle err, and deal with retrying.
+
+        self.report(tx, Duration::from_secs(self.config.report_duration));
+        self
+    }
+    fn report(&self, tx: Sender<ReportRequest>, d: Duration) {
+        // report channels
+        let core = Arc::clone(&self.core);
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(d).await;
+                let mut vec = vec![];
+                for channel in core.iter() {
+                    vec.push(Channel {
+                        id: channel.id,
+                        name: channel.name.clone(),
+                        limit: channel.limit,
+                        users: channel
+                            .user_shutdown_txs
+                            .iter()
+                            .map(|v| User {
+                                id: v.key().to_string(),
+                                ..Default::default()
+                            })
+                            .collect(),
+                    })
+                }
+                if let Err(e) = tx
+                    .send(ReportRequest {
+                        channels: vec,
+                        ..Default::default()
+                    })
+                    .await
+                {
+                    error!("report tx error: {}", e);
+                    break;
+                }
+            }
+        });
     }
 }
 
@@ -209,7 +256,18 @@ impl crate::chat_service_server::ChatService for ChatService {
         }
 
         let (user_id, channel_id) = (claims.user_id.clone(), claims.channel_id);
-        let channel_core = self.core.entry(channel_id).or_insert_with(ChannelCore::new);
+        // if channel not exists, add it
+        // channel not update when exists users, and will update util removed and first user join it
+        if !self.core.contains_key(&channel_id) {
+            let channel = self
+                .sql_helper
+                .get_channels(&channel_id)
+                .await?
+                .pop()
+                .unwrap();
+            self.core.insert(channel_id, ChannelCore::new(channel));
+        }
+        let channel_core = self.core.get_mut(&channel_id).unwrap();
 
         // check if user is in channel
         if channel_core.exist_user(&user_id) {
@@ -264,7 +322,7 @@ impl crate::chat_service_server::ChatService for ChatService {
             if let Some(user_id) = req.user_id {
                 channel_core.shutdown_user(&user_id);
             } else {
-                channel_core.shutdown();
+                self.core.remove(&req.channel_id);
             }
             Ok(Response::new(()))
         } else {
