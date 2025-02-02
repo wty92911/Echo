@@ -1,14 +1,16 @@
 use crate::auth::interceptor::{encrypt, Claims};
 use crate::auth::limiter::{FixedWindowLimiter, Limiter, LimiterConfig};
 use crate::auth::validator::Validator;
+use crate::client::ChatClient;
 use crate::config::ServerConfig;
 use crate::db::SqlHelper;
 use crate::servers::manager::server::ServerManager;
-use crate::{error::*, get_claims_from, ChannelServer, ListResponse};
+use crate::{error::*, get_claims_from, ChannelServer, ListResponse, ShutdownRequest};
 use crate::{Channel, ListenResponse, ReportRequest};
 use chrono::Utc;
 use dashmap::DashMap;
 use log::{error, info};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -25,7 +27,7 @@ use tonic::{Request, Response, Status, Streaming};
 ///
 /// ChannelService will reload all channels from database to svr_manager when it starts.
 ///
-/// todo: client to communicate with chat server.
+/// todo: client to communicate with chat
 #[derive(Debug)]
 pub struct ChannelService {
     config: ServerConfig,
@@ -149,36 +151,100 @@ impl crate::channel_service_server::ChannelService for ChannelService {
 
         let mgr = self.svr_manager.clone();
         let channel_info = self.channel_info.clone();
+        let client = ChatClient::new(&server_addr, &self.config.secret).await;
+        let mgr_addr: String = self.config.url_with(false);
+        let empty_long_time = self.config.empty_live_time;
         tokio::spawn(async move {
-            info!("add server: {}", server_addr);
-            // if use let mgr = mgr.write().await, we will drop mgr after this line.
-            // to avoid of dead lock
-            mgr.write().await.add_server(&server_addr);
-            // change channel's belonging server
-            let mut stream = request.into_inner();
-            while let Ok(report) = stream.message().await {
-                if let Some(report) = report {
-                    // todo: handle metric
-                    info!("report: {:?} from: {}", report, &server_addr);
-                    for channel in report.channels.into_iter() {
-                        // check if channel is not belong to server, todo: shutdown and why it exists?
-                        if let Ok(addr) = mgr.read().await.get_server(&channel.id) {
-                            if addr == server_addr {
-                                // accept it
-                                channel_info.insert(channel.id, channel);
-                            } else {
-                                error!("server: {:?} takes channel: {:?}, but it actually belongs to server: {:?}", server_addr, channel, addr);
-                            }
-                        } else {
-                            error!("channel: {:?} doesn't belong to any server", channel);
-                        }
-                    }
-                }
-            }
-
-            mgr.write().await.delete_server(&server_addr);
+            handle_report(
+                mgr,
+                channel_info,
+                client,
+                server_addr,
+                mgr_addr,
+                empty_long_time,
+                request.into_inner(),
+            )
         });
 
         Ok(Response::new(()))
     }
+}
+
+async fn handle_report(
+    mgr: Arc<RwLock<ServerManager>>,
+    channel_info: Arc<DashMap<i32, Channel>>,
+    mut client: ChatClient,
+    server_addr: String, // chat server addr
+    mgr_addr: String,    // mgr addr = local
+    empty_long_time: i64,
+    mut stream: Streaming<ReportRequest>,
+) {
+    info!("add server: {}", server_addr);
+    // if use let mgr = mgr.write().await, we will drop mgr after this line.
+    // to avoid of dead lock
+    mgr.write().await.add_server(&server_addr);
+    // change channel's belonging server
+    let mut empty_chn_ts = HashMap::new();
+    while let Ok(report) = stream.message().await {
+        if let Some(report) = report {
+            // todo: handle metric
+            info!("report: {:?} from: {}", report, &server_addr);
+            for channel in report.channels.into_iter() {
+                // check if channel is not belong to server, todo: shutdown and why it exists?
+                if let Ok(addr) = mgr.read().await.get_server(&channel.id) {
+                    if addr == server_addr {
+                        if check_long_empty_channel(&channel, &mut empty_chn_ts, &empty_long_time) {
+                            if let Err(e) = client
+                                .shutdown(
+                                    ShutdownRequest {
+                                        user_id: None,
+                                        channel_id: channel.id,
+                                    },
+                                    mgr_addr.clone(),
+                                )
+                                .await
+                            {
+                                error!("shutdown channel: {:?} failed: {:?}", channel, e);
+                            }
+                            continue;
+                        }
+
+                        // accept it
+                        channel_info.insert(channel.id, channel);
+                    } else {
+                        error!("server: {:?} takes channel: {:?}, but it actually belongs to server: {:?}", server_addr, channel, addr);
+                    }
+                } else {
+                    error!("channel: {:?} doesn't belong to any server", channel);
+                }
+            }
+        }
+    }
+    mgr.write().await.delete_server(&server_addr);
+}
+
+// help to check long empty channel
+// true: long empty channel
+fn check_long_empty_channel(
+    channel: &Channel,
+    empty_chn_ts: &mut HashMap<i32, i64>,
+    t: &i64,
+) -> bool {
+    if channel.users.is_empty() {
+        if let Some(ts) = empty_chn_ts.get(&channel.id) {
+            if chrono::Utc::now().timestamp() - ts > *t {
+                // long empty channel, try to delete it
+                empty_chn_ts.remove(&channel.id);
+                return true;
+            }
+            // else {} do nothing, just keep the former record
+        } else {
+            // first time, record it
+            empty_chn_ts.insert(channel.id, chrono::Utc::now().timestamp());
+        }
+    } else {
+        // update empty_chn_ts, exists users, so remove from empty_chn_ts
+        empty_chn_ts.remove(&channel.id);
+    }
+    false
 }

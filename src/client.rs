@@ -2,27 +2,23 @@ use chrono;
 use std::str::FromStr;
 use tokio::sync::mpsc::Receiver;
 use tokio_stream::wrappers::ReceiverStream;
-use tonic::{
-    transport::{Channel, Endpoint},
-    Request, Response, Status,
-};
+use tonic::{transport::Endpoint, Request, Response, Status};
 
 use crate::{
     auth::interceptor::{intercept_token, Claims},
     channel_service_client::ChannelServiceClient,
-    ReportRequest,
+    chat_service_client::ChatServiceClient,
+    ReportRequest, ShutdownRequest,
 };
 
 pub struct ChannelClient {
-    inner: ChannelServiceClient<Channel>,
+    inner: ChannelServiceClient<tonic::transport::Channel>,
     secret: String,
 }
 
 impl ChannelClient {
     pub async fn new(addr: &str, secret: &str) -> Self {
-        println!("Connecting to {}", addr);
         let conn = Endpoint::from_str(addr).unwrap().connect().await.unwrap();
-        println!("Connected");
         Self {
             inner: ChannelServiceClient::new(conn),
             secret: secret.to_string(),
@@ -46,5 +42,36 @@ impl ChannelClient {
             &self.secret,
         )?;
         self.inner.report(req).await
+    }
+}
+
+pub struct ChatClient {
+    inner: ChatServiceClient<tonic::transport::Channel>,
+    secret: String,
+}
+
+impl ChatClient {
+    pub async fn new(addr: &str, secret: &str) -> Self {
+        let conn = Endpoint::from_str(addr).unwrap().connect().await.unwrap();
+        Self {
+            inner: ChatServiceClient::new(conn),
+            secret: secret.to_string(),
+        }
+    }
+
+    pub async fn shutdown(
+        &mut self,
+        req: ShutdownRequest,
+        addr: String,
+    ) -> Result<Response<()>, Status> {
+        let req = intercept_token(
+            Request::new(req),
+            Claims {
+                addr,
+                ..Default::default()
+            },
+            &self.secret,
+        )?;
+        self.inner.shutdown(req).await
     }
 }

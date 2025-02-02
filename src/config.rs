@@ -30,6 +30,7 @@ pub struct ServerConfig {
     pub port: u16,
     pub secret: String,
     pub report_duration: u64,
+    pub empty_live_time: i64,
 }
 
 impl Config {
@@ -91,6 +92,7 @@ mod tests {
                     host: "0.0.0.0".to_string(),
                     port: 50051,
                     report_duration: 3,
+                    empty_live_time: 30,
                 },
             }
         )

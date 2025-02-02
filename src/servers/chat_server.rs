@@ -47,6 +47,10 @@ impl ChannelCore {
         }
     }
 
+    pub fn is_full(&self) -> bool {
+        self.user_shutdown_txs.len() >= self.limit as usize
+    }
+
     // add user's shutdown_tx
     pub fn add_user_shutdown_tx(&self, user_id: String, shutdown_tx: broadcast::Sender<()>) {
         self.user_shutdown_txs.insert(user_id, shutdown_tx);
@@ -118,6 +122,7 @@ impl ChatService {
                             .collect(),
                     })
                 }
+
                 if let Err(e) = tx
                     .send(ReportRequest {
                         channels: vec,
@@ -274,6 +279,11 @@ impl crate::chat_service_server::ChatService for ChatService {
             return Err(Error::InvalidRequest("user already in channel").into());
         }
 
+        // check channel limit
+        if channel_core.is_full() {
+            return Err(Error::InvalidRequest("channel is full").into());
+        }
+
         // Initializing streams and channels
         let broadcast = channel_core.broadcast.clone();
         let inbound = request.into_inner();
@@ -294,7 +304,6 @@ impl crate::chat_service_server::ChatService for ChatService {
             )
             .await;
         });
-
         Ok(Response::new(Box::pin(
             tokio_stream::wrappers::ReceiverStream::new(rx),
         )))

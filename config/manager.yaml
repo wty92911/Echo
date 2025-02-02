@@ -9,3 +9,4 @@ server:
   port: 50051
   secret: secret # for JWT token
   report_duration: 3 # for chat server
+  empty_live_time: 30 # max live time for empty channels
