@@ -15,7 +15,7 @@ service ChannelService {
 
   // For channel servers
   // Report something periodically
-  rpc Report(stream ReportRequest) returns (google.protobuf.Empty);
+  rpc Report(stream ReportRequest) returns (stream ReportResponse);
 }
 
 // For specific channel server
@@ -77,6 +77,10 @@ message ReportRequest {
   Metric metric = 1;
   // channels being served
   repeated Channel channels = 2;
+}
+
+message ReportResponse {
+  optional ShutdownRequest shutdown = 1;
 }
 
 // Metric like a heartbeat

@@ -1,19 +1,20 @@
 use crate::auth::interceptor::{encrypt, Claims};
 use crate::auth::limiter::{FixedWindowLimiter, Limiter, LimiterConfig};
 use crate::auth::validator::Validator;
-use crate::client::ChatClient;
 use crate::config::ServerConfig;
 use crate::db::SqlHelper;
 use crate::servers::manager::server::ServerManager;
 use crate::{error::*, get_claims_from, ChannelServer, ListResponse, ShutdownRequest};
-use crate::{Channel, ListenResponse, ReportRequest};
+use crate::{Channel, ListenResponse, ReportRequest, ReportResponse};
 use chrono::Utc;
 use dashmap::DashMap;
 use log::{error, info};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::mpsc::Sender;
 use tokio::sync::RwLock;
+use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
 
 /// Channel Service Implements:
@@ -139,43 +140,45 @@ impl crate::channel_service_server::ChannelService for ChannelService {
         }))
     }
 
+    type ReportStream = crate::TonicStream<ReportResponse>;
     // chat server will report to manager, here we use `token` as server_addr to identify server
     // server and manager will use same `secret` to encrypt and decrypt token
     async fn report(
         &self,
         request: Request<Streaming<ReportRequest>>,
-    ) -> Result<Response<()>, Status> {
+    ) -> Result<Response<Self::ReportStream>, Status> {
         info!("report request: {:?}", request);
         let claims = get_claims_from!(request, &self.config.secret);
         let server_addr = claims.addr;
 
         let mgr = self.svr_manager.clone();
         let channel_info = self.channel_info.clone();
-        let client = ChatClient::new(&server_addr, &self.config.secret).await;
-        let mgr_addr: String = self.config.url_with(false);
+        info!("server addr: {}", server_addr);
         let empty_long_time = self.config.empty_live_time;
+        let (tx, rx) = tokio::sync::mpsc::channel(10);
+
         tokio::spawn(async move {
             handle_report(
+                tx,
                 mgr,
                 channel_info,
-                client,
                 server_addr,
-                mgr_addr,
                 empty_long_time,
                 request.into_inner(),
             )
         });
 
-        Ok(Response::new(()))
+        let stream: ReceiverStream<Result<ReportResponse, Status>> =
+            tokio_stream::wrappers::ReceiverStream::new(rx);
+        Ok(Response::new(Box::pin(stream)))
     }
 }
 
 async fn handle_report(
+    tx: Sender<Result<ReportResponse, Status>>,
     mgr: Arc<RwLock<ServerManager>>,
     channel_info: Arc<DashMap<i32, Channel>>,
-    mut client: ChatClient,
     server_addr: String, // chat server addr
-    mgr_addr: String,    // mgr addr = local
     empty_long_time: i64,
     mut stream: Streaming<ReportRequest>,
 ) {
@@ -194,14 +197,13 @@ async fn handle_report(
                 if let Ok(addr) = mgr.read().await.get_server(&channel.id) {
                     if addr == server_addr {
                         if check_long_empty_channel(&channel, &mut empty_chn_ts, &empty_long_time) {
-                            if let Err(e) = client
-                                .shutdown(
-                                    ShutdownRequest {
+                            if let Err(e) = tx
+                                .send(Ok(ReportResponse {
+                                    shutdown: Some(ShutdownRequest {
                                         user_id: None,
                                         channel_id: channel.id,
-                                    },
-                                    mgr_addr.clone(),
-                                )
+                                    }),
+                                }))
                                 .await
                             {
                                 error!("shutdown channel: {:?} failed: {:?}", channel, e);

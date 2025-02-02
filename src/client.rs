@@ -1,14 +1,15 @@
 use chrono;
+use log::info;
 use std::str::FromStr;
 use tokio::sync::mpsc::Receiver;
 use tokio_stream::wrappers::ReceiverStream;
-use tonic::{transport::Endpoint, Request, Response, Status};
+use tonic::{transport::Endpoint, Request, Response, Status, Streaming};
 
 use crate::{
     auth::interceptor::{intercept_token, Claims},
     channel_service_client::ChannelServiceClient,
     chat_service_client::ChatServiceClient,
-    ReportRequest, ShutdownRequest,
+    ReportRequest, ReportResponse, ShutdownRequest,
 };
 
 pub struct ChannelClient {
@@ -18,6 +19,7 @@ pub struct ChannelClient {
 
 impl ChannelClient {
     pub async fn new(addr: &str, secret: &str) -> Self {
+        info!("new channel client: {}", addr);
         let conn = Endpoint::from_str(addr).unwrap().connect().await.unwrap();
         Self {
             inner: ChannelServiceClient::new(conn),
@@ -29,7 +31,7 @@ impl ChannelClient {
         &mut self,
         chat_server_addr: String,
         rx: Receiver<ReportRequest>,
-    ) -> Result<Response<()>, Status> {
+    ) -> Result<Response<Streaming<ReportResponse>>, Status> {
         let stream = ReceiverStream::new(rx);
         let mut req = Request::new(stream);
         req = intercept_token(

@@ -92,14 +92,37 @@ impl ChatService {
     async fn register(self) -> Self {
         let (tx, rx) = tokio::sync::mpsc::channel(100);
         let mut client = ChannelClient::new(&self.manager_addr, &self.config.secret).await;
-        client
+        let rsp = client
             .report(self.config.url_with(false), rx)
             .await
             .unwrap(); // todo handle err, and deal with retrying.
 
+        let core = Arc::clone(&self.core);
+        let mut stream = rsp.into_inner();
+        tokio::spawn(async move {
+            while let Ok(rsp) = stream.message().await {
+                if let Some(rsp) = rsp {
+                    // 1. check shutdown signal
+                    if let Some(req) = rsp.shutdown {
+                        if let Some(channel_core) = core.get(&req.channel_id) {
+                            if let Some(user_id) = req.user_id {
+                                channel_core.shutdown_user(&user_id);
+                            } else {
+                                core.remove(&req.channel_id);
+                            }
+                        } else {
+                            error!("channel: {} not found", req.channel_id);
+                        }
+                    }
+                } else {
+                    break;
+                }
+            }
+        });
         self.report(tx, Duration::from_secs(self.config.report_duration));
         self
     }
+
     fn report(&self, tx: Sender<ReportRequest>, d: Duration) {
         // report channels
         let core = Arc::clone(&self.core);
@@ -317,6 +340,7 @@ impl crate::chat_service_server::ChatService for ChatService {
         todo!()
     }
 
+    /// deprecated
     /// shutdown user-channel connection for manager.
     async fn shutdown(&self, request: Request<ShutdownRequest>) -> Result<Response<()>, Status> {
         info!("shutdown request: {:?}", request);

@@ -59,6 +59,11 @@ pub struct ReportRequest {
     #[prost(message, repeated, tag = "2")]
     pub channels: ::prost::alloc::vec::Vec<Channel>,
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ReportResponse {
+    #[prost(message, optional, tag = "1")]
+    pub shutdown: ::core::option::Option<ShutdownRequest>,
+}
 /// Metric like a heartbeat
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Metric {
@@ -252,7 +257,10 @@ pub mod channel_service_client {
         pub async fn report(
             &mut self,
             request: impl tonic::IntoStreamingRequest<Message = super::ReportRequest>,
-        ) -> std::result::Result<tonic::Response<()>, tonic::Status> {
+        ) -> std::result::Result<
+            tonic::Response<tonic::codec::Streaming<super::ReportResponse>>,
+            tonic::Status,
+        > {
             self.inner.ready().await.map_err(|e| {
                 tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
             })?;
@@ -261,7 +269,7 @@ pub mod channel_service_client {
             let mut req = request.into_streaming_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("echo.ChannelService", "Report"));
-            self.inner.client_streaming(req, path, codec).await
+            self.inner.streaming(req, path, codec).await
         }
     }
 }
@@ -578,12 +586,17 @@ pub mod channel_service_server {
             &self,
             request: tonic::Request<super::Channel>,
         ) -> std::result::Result<tonic::Response<super::ListenResponse>, tonic::Status>;
+        /// Server streaming response type for the Report method.
+        type ReportStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<super::ReportResponse, tonic::Status>,
+            > + std::marker::Send
+            + 'static;
         /// For channel servers
         /// Report something periodically
         async fn report(
             &self,
             request: tonic::Request<tonic::Streaming<super::ReportRequest>>,
-        ) -> std::result::Result<tonic::Response<()>, tonic::Status>;
+        ) -> std::result::Result<tonic::Response<Self::ReportStream>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct ChannelServiceServer<T> {
@@ -813,12 +826,11 @@ pub mod channel_service_server {
                 "/echo.ChannelService/Report" => {
                     #[allow(non_camel_case_types)]
                     struct ReportSvc<T: ChannelService>(pub Arc<T>);
-                    impl<T: ChannelService>
-                        tonic::server::ClientStreamingService<super::ReportRequest>
-                        for ReportSvc<T>
-                    {
-                        type Response = ();
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                    impl<T: ChannelService> tonic::server::StreamingService<super::ReportRequest> for ReportSvc<T> {
+                        type Response = super::ReportResponse;
+                        type ResponseStream = T::ReportStream;
+                        type Future =
+                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
                         fn call(
                             &mut self,
                             request: tonic::Request<tonic::Streaming<super::ReportRequest>>,
@@ -846,7 +858,7 @@ pub mod channel_service_server {
                                 max_decoding_message_size,
                                 max_encoding_message_size,
                             );
-                        let res = grpc.client_streaming(method, req).await;
+                        let res = grpc.streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)
