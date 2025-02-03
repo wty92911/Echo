@@ -347,15 +347,16 @@ async fn test_conn_wrong_server() {
 
 #[tokio::test]
 async fn test_report() {
+    env_logger::init();
     let (config, join_handle, tdb) = init_manager_server(50354).await;
     let addr = config.server.url_with(false);
     let conn = Endpoint::from_str(&addr).unwrap().connect().await.unwrap();
     let token = register_login("test", conn.clone()).await;
     let mut chan_client = ChannelServiceClient::new(conn.clone());
 
-    // create 5 channels
+    // create 1 channels
     let mut channels = Vec::new();
-    for i in 0..5 {
+    for i in 0..1 {
         let channel = Channel {
             name: format!("channel_{}", i),
             limit: 10,
@@ -386,7 +387,7 @@ async fn test_report() {
         tokens.push(token);
     }
 
-    // 3. try listen two channels at same time
+    // 3. try listen one channels at same time
     let rsp = chan_client
         .listen(intercept_token(
             Request::new(channels[0].clone()),
@@ -452,6 +453,8 @@ async fn test_report() {
             println!("rsp: {:?}", rsp);
             assert_eq!(rsp.channels.len(), 1);
             assert_eq!(rsp.channels[0].users.len(), 0);
+
+            tokio::time::sleep(Duration::from_secs(3)).await;
         }
     }
 

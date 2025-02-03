@@ -248,7 +248,7 @@ async fn handle_report(
 
 // help to check long empty channel
 // true: long empty channel
-// todo: teset it
+// todo: test it
 fn check_long_empty_channel(
     channel: &Channel,
     empty_chn_ts: &mut HashMap<i32, i64>,

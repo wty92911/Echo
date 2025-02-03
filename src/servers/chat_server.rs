@@ -58,8 +58,10 @@ impl ChannelCore {
 
     // remove specific user from current channel
     fn shutdown_user(&self, user_id: &str) {
-        if let Some((_, shutdown_tx)) = self.user_shutdown_txs.remove(user_id) {
-            let _ = shutdown_tx.send(());
+        let shutdown_tx = self.user_shutdown_txs.remove(user_id).map(|(_, tx)| tx);
+
+        if let Some(tx) = shutdown_tx {
+            let _ = tx.send(());
         }
     }
 
@@ -70,10 +72,18 @@ impl ChannelCore {
 
 impl Drop for ChannelCore {
     fn drop(&mut self) {
-        for shutdown_tx in self.user_shutdown_txs.iter() {
-            let _ = shutdown_tx.send(());
-        }
+        let txs: Vec<_> = self
+            .user_shutdown_txs
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect();
+
         self.user_shutdown_txs.clear();
+
+        // send signal outside lock
+        for tx in txs {
+            let _ = tx.send(());
+        }
     }
 }
 impl ChatService {
@@ -104,15 +114,15 @@ impl ChatService {
                 if let Some(rsp) = rsp {
                     // 1. check shutdown signal
                     if let Some(req) = rsp.shutdown {
-                        info!("shutdown channel: {}", req.channel_id);
-                        if let Some(channel_core) = core.get(&req.channel_id) {
-                            if let Some(user_id) = req.user_id {
+                        info!("shutdown channel req: {:?}", req);
+                        if let Some(user_id) = req.user_id {
+                            if let Some(channel_core) = core.get(&req.channel_id) {
                                 channel_core.shutdown_user(&user_id);
                             } else {
-                                core.remove(&req.channel_id);
+                                error!("channel: {} not found", req.channel_id);
                             }
                         } else {
-                            error!("channel: {} not found", req.channel_id);
+                            core.remove(&req.channel_id).unwrap();
                         }
                     }
                 } else {
@@ -269,9 +279,6 @@ impl crate::chat_service_server::ChatService for ChatService {
     ///
     /// Set timeout to 30mins to avoid of resource wasting.
     ///
-    /// todo: use `Redis` to limit by `user_id, channel_id` in distribute server,
-    /// only `listen` on manager server will change user-channel-state, here we just check its constraint.
-    /// And when `listen` changes users' channel, `Redis` will send a shutdown signal to chat server.
     ///
     async fn conn(
         &self,
