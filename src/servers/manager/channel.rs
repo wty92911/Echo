@@ -1,9 +1,9 @@
+use super::server::ServerManager;
 use crate::auth::interceptor::{encrypt, Claims};
 use crate::auth::limiter::{FixedWindowLimiter, Limiter, LimiterConfig};
 use crate::auth::validator::Validator;
 use crate::config::ServerConfig;
 use crate::db::SqlHelper;
-use crate::servers::manager::server::ServerManager;
 use crate::{error::*, get_claims_from, ChannelServer, ListResponse, ShutdownRequest};
 use crate::{Channel, ListenResponse, ReportRequest, ReportResponse};
 use chrono::Utc;

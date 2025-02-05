@@ -1,5 +1,5 @@
+use super::client::ChannelClient;
 use crate::chat_service_server::ChatServiceServer;
-use crate::client::ChannelClient;
 use crate::error::Error;
 use crate::{config::ServerConfig, db::SqlHelper, Channel, Message};
 use crate::{get_claims_from, ReportRequest, ShutdownRequest, User};

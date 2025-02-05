@@ -8,8 +8,10 @@ use tonic::{transport::Endpoint, Request, Response, Status, Streaming};
 use crate::{
     auth::interceptor::{intercept_token, Claims},
     channel_service_client::ChannelServiceClient,
-    chat_service_client::ChatServiceClient,
-    ReportRequest, ReportResponse, ShutdownRequest,
+    // chat_service_client::ChatServiceClient,
+    ReportRequest,
+    ReportResponse,
+    // ShutdownRequest,
 };
 
 pub struct ChannelClient {
@@ -47,33 +49,33 @@ impl ChannelClient {
     }
 }
 
-pub struct ChatClient {
-    inner: ChatServiceClient<tonic::transport::Channel>,
-    secret: String,
-}
+// pub struct ChatClient {
+//     inner: ChatServiceClient<tonic::transport::Channel>,
+//     secret: String,
+// }
 
-impl ChatClient {
-    pub async fn new(addr: &str, secret: &str) -> Self {
-        let conn = Endpoint::from_str(addr).unwrap().connect().await.unwrap();
-        Self {
-            inner: ChatServiceClient::new(conn),
-            secret: secret.to_string(),
-        }
-    }
+// impl ChatClient {
+//     pub async fn new(addr: &str, secret: &str) -> Self {
+//         let conn = Endpoint::from_str(addr).unwrap().connect().await.unwrap();
+//         Self {
+//             inner: ChatServiceClient::new(conn),
+//             secret: secret.to_string(),
+//         }
+//     }
 
-    pub async fn shutdown(
-        &mut self,
-        req: ShutdownRequest,
-        addr: String,
-    ) -> Result<Response<()>, Status> {
-        let req = intercept_token(
-            Request::new(req),
-            Claims {
-                addr,
-                ..Default::default()
-            },
-            &self.secret,
-        )?;
-        self.inner.shutdown(req).await
-    }
-}
+//     pub async fn shutdown(
+//         &mut self,
+//         req: ShutdownRequest,
+//         addr: String,
+//     ) -> Result<Response<()>, Status> {
+//         let req = intercept_token(
+//             Request::new(req),
+//             Claims {
+//                 addr,
+//                 ..Default::default()
+//             },
+//             &self.secret,
+//         )?;
+//         self.inner.shutdown(req).await
+//     }
+// }
