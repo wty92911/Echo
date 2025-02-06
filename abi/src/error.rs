@@ -5,11 +5,14 @@ pub enum Error {
     #[error("Database error")]
     Db(sqlx::Error),
 
+    // client error
     #[error("Connect error")]
     Connect(tonic::transport::Error),
-
     #[error("Rpc error: `{0}`")]
     Rpc(Status),
+    #[error("Token not found")]
+    TokenNotFound,
+
     // business logic error
     #[error("Invalid password")]
     InvalidPassword,
