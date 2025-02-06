@@ -1,6 +1,6 @@
-use echo::channel_service_client::ChannelServiceClient;
-use echo::chat_service_client::ChatServiceClient;
-use echo::{Channel, Message};
+use abi::pb::channel_service_client::ChannelServiceClient;
+use abi::pb::chat_service_client::ChatServiceClient;
+use abi::pb::{Channel, Message};
 use std::collections::HashSet;
 use std::str::FromStr;
 use tokio::time::timeout;

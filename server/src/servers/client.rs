@@ -5,8 +5,8 @@ use tokio::sync::mpsc::Receiver;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{transport::Endpoint, Request, Response, Status, Streaming};
 
-use crate::{
-    auth::interceptor::{intercept_token, Claims},
+use crate::auth::interceptor::{intercept_token, Claims};
+use abi::pb::{
     channel_service_client::ChannelServiceClient,
     // chat_service_client::ChatServiceClient,
     ReportRequest,

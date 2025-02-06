@@ -4,9 +4,9 @@ use user::*;
 mod channel;
 use channel::*;
 mod server;
-use crate::{
-    channel_service_server::ChannelServiceServer, config::ServerConfig, db::SqlHelper,
-    user_service_server::UserServiceServer,
+use crate::{config::ServerConfig, db::SqlHelper};
+use abi::pb::{
+    channel_service_server::ChannelServiceServer, user_service_server::UserServiceServer,
 };
 
 #[macro_export]

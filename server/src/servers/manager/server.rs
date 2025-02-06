@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use log::info;
 
-use crate::{error::Error, hash::ConsistentHash};
-
+use crate::hash::ConsistentHash;
+use abi::error::Error;
 /// A cache for servers:
 /// like the relation of server and channel.
 ///
@@ -73,7 +73,7 @@ impl ServerManager {
     /// there are two failed cases:
     ///     1. channel not found
     ///     2. server not found
-    pub fn get_server(&self, channel_id: &i32) -> crate::Result<String> {
+    pub fn get_server(&self, channel_id: &i32) -> abi::Result<String> {
         if let Some(server) = self.channel_to_server.get(channel_id) {
             if let Some(server) = server {
                 Ok(server.clone())

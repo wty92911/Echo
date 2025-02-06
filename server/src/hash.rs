@@ -11,7 +11,7 @@ use std::hash::{Hash, Hasher};
 /// # Examples
 ///
 /// ```
-/// use echo::hash::ConsistentHash;
+/// use echo_server::hash::ConsistentHash;
 ///
 /// let mut ch = ConsistentHash::new();
 /// ch.add_server("server1");
@@ -38,7 +38,7 @@ impl ConsistentHash {
     /// # Examples
     ///
     /// ```
-    /// use echo::hash::ConsistentHash;
+    /// use echo_server::hash::ConsistentHash;
     ///
     /// let ch = ConsistentHash::new();
     /// ```
@@ -61,7 +61,7 @@ impl ConsistentHash {
     /// # Examples
     ///
     /// ```
-    /// use echo::hash::ConsistentHash;
+    /// use echo_server::hash::ConsistentHash;
     ///
     /// let mut ch = ConsistentHash::new();
     /// ch.add_server("server1");
@@ -86,7 +86,7 @@ impl ConsistentHash {
     /// # Examples
     ///
     /// ```
-    /// use echo::hash::ConsistentHash;
+    /// use echo_server::hash::ConsistentHash;
     ///
     /// let mut ch = ConsistentHash::new();
     /// ch.add_server("server1");
@@ -116,7 +116,7 @@ impl ConsistentHash {
     /// # Examples
     ///
     /// ```
-    /// use echo::hash::ConsistentHash;
+    /// use echo_server::hash::ConsistentHash;
     ///
     /// let mut ch = ConsistentHash::new();
     /// ch.add_server("server1");

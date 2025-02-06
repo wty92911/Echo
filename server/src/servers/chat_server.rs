@@ -1,8 +1,9 @@
 use super::client::ChannelClient;
-use crate::chat_service_server::ChatServiceServer;
-use crate::error::Error;
-use crate::{config::ServerConfig, db::SqlHelper, Channel, Message};
-use crate::{get_claims_from, ReportRequest, ShutdownRequest, User};
+use crate::{config::ServerConfig, db::SqlHelper, get_claims_from};
+use abi::error::Error;
+use abi::pb::{
+    chat_service_server::ChatServiceServer, Channel, Message, ReportRequest, ShutdownRequest, User,
+};
 use chrono::Utc;
 use dashmap::DashMap;
 use log::{error, info};
@@ -270,7 +271,7 @@ fn spawn_outbound_task(
 }
 
 #[tonic::async_trait]
-impl crate::chat_service_server::ChatService for ChatService {
+impl abi::pb::chat_service_server::ChatService for ChatService {
     type ConnStream = Pin<Box<dyn Stream<Item = std::result::Result<Message, Status>> + Send>>;
 
     /// Conn takes a inbound stream and returns it's channel's broadcast stream.

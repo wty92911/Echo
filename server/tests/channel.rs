@@ -1,5 +1,5 @@
-use echo::channel_service_client::ChannelServiceClient;
-use echo::Channel;
+use abi::pb::channel_service_client::ChannelServiceClient;
+use abi::pb::Channel;
 use std::collections::HashSet;
 use std::str::FromStr;
 use std::time::Duration;

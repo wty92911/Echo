@@ -1,7 +1,7 @@
 use crate::auth::interceptor::{encrypt, Claims};
 use crate::db::SqlHelper;
-use crate::error::Error;
-use crate::pb::{LoginRequest, LoginResponse, RegisterRequest};
+use abi::error::Error;
+use abi::pb::{LoginRequest, LoginResponse, RegisterRequest};
 use argon2::Argon2;
 use chrono::{Duration, Utc};
 use log::info;
@@ -32,7 +32,7 @@ impl UserService {
 }
 
 #[tonic::async_trait]
-impl crate::user_service_server::UserService for UserService {
+impl abi::pb::user_service_server::UserService for UserService {
     async fn login(
         &self,
         request: Request<LoginRequest>,

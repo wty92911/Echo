@@ -3,6 +3,17 @@
 version = 4
 
 [[package]]
+name = "abi"
+version = "0.1.0"
+dependencies = [
+ "prost",
+ "sqlx",
+ "thiserror",
+ "tonic",
+ "tonic-build",
+]
+
+[[package]]
 name = "addr2line"
 version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -511,9 +522,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
-name = "echo"
+name = "echo_server"
 version = "0.1.0"
 dependencies = [
+ "abi",
  "argon2",
  "async-stream",
  "async-trait",

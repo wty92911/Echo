@@ -1,5 +1,7 @@
-use echo::{channel_service_client::ChannelServiceClient, user_service_client::UserServiceClient};
-use echo::{Channel, LoginRequest, RegisterRequest};
+use abi::pb::{
+    channel_service_client::ChannelServiceClient, user_service_client::UserServiceClient, Channel,
+    LoginRequest, RegisterRequest,
+};
 use std::str::FromStr;
 use tonic::transport::Endpoint;
 use tonic::Request;

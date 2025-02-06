@@ -5,11 +5,11 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 use tokio::time::Instant;
 
-use crate::error::Error;
+use abi::error::Error;
 
 #[async_trait]
 pub trait Limiter: Send + Sync {
-    async fn is_allowed(&self, key: &str) -> crate::Result<()>;
+    async fn is_allowed(&self, key: &str) -> abi::Result<()>;
 }
 
 #[derive(Debug, Clone)]
@@ -41,7 +41,7 @@ impl FixedWindowLimiter {
 
 #[async_trait]
 impl Limiter for FixedWindowLimiter {
-    async fn is_allowed(&self, key: &str) -> crate::Result<()> {
+    async fn is_allowed(&self, key: &str) -> abi::Result<()> {
         let mut counts = self.counts.write().await;
         let now = Instant::now();
 

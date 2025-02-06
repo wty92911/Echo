@@ -1,11 +1,17 @@
 use super::server::ServerManager;
 use crate::auth::interceptor::{encrypt, Claims};
 use crate::auth::limiter::{FixedWindowLimiter, Limiter, LimiterConfig};
-use crate::auth::validator::Validator;
 use crate::config::ServerConfig;
 use crate::db::SqlHelper;
-use crate::{error::*, get_claims_from, ChannelServer, ListResponse, ShutdownRequest};
-use crate::{Channel, ListenResponse, ReportRequest, ReportResponse};
+use crate::get_claims_from;
+use abi::{
+    error::*,
+    pb::{
+        Channel, ChannelServer, ListResponse, ListenResponse, ReportRequest, ReportResponse,
+        ShutdownRequest,
+    },
+    traits::Validator,
+};
 use chrono::Utc;
 use dashmap::DashMap;
 use log::{error, info};
@@ -55,7 +61,7 @@ impl ChannelService {
 }
 
 #[tonic::async_trait]
-impl crate::channel_service_server::ChannelService for ChannelService {
+impl abi::pb::channel_service_server::ChannelService for ChannelService {
     /// list channels by request id
     /// if id is empty, return all channels
     /// if id is not empty, return channels by id

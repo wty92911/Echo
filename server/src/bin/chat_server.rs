@@ -1,7 +1,7 @@
 use clap::{Arg, Command};
-use echo::config::Config;
-use echo::db::SqlHelper;
-use echo::servers::chat_server::start_chat_server;
+use echo_server::config::Config;
+use echo_server::db::SqlHelper;
+use echo_server::servers::chat_server::start_chat_server;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();

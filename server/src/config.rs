@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path};
 
-use crate::error::Error;
+use abi::error::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
@@ -76,7 +76,7 @@ mod tests {
 
     #[test]
     fn test_load() {
-        let config = Config::load("./config/manager.yaml").unwrap();
+        let config = Config::load("../config/manager.yaml").unwrap();
         assert_eq!(
             config,
             Config {

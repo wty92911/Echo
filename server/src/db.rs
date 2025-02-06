@@ -1,8 +1,8 @@
-use crate::{config::DbConfig, Channel, Result};
-use sqlx::{
-    postgres::{PgPoolOptions, PgRow},
-    FromRow, PgPool, Postgres, Row,
-};
+use crate::config::DbConfig;
+use abi::pb::Channel;
+use abi::Result;
+use sqlx::{postgres::PgPoolOptions, PgPool, Postgres};
+
 /// SqlHelper is a helper for sqlx, concurrent safe.
 #[derive(Debug, Clone)]
 pub struct SqlHelper {
@@ -80,19 +80,6 @@ impl SqlHelper {
             .fetch_one(&self.pool)
             .await?;
         Ok(owner_id)
-    }
-}
-
-impl FromRow<'_, PgRow> for Channel {
-    fn from_row(row: &PgRow) -> sqlx::Result<Self, sqlx::Error> {
-        let id: i32 = row.get("id");
-        let limit: i32 = row.get("limit_num");
-        Ok(Channel {
-            id,
-            name: row.get("name"),
-            users: vec![],
-            limit,
-        })
     }
 }
 
