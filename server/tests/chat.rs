@@ -8,6 +8,7 @@ use tokio::time::Duration;
 use tonic::transport::Endpoint;
 use tonic::{Request, Status, Streaming};
 mod common;
+use abi::traits::WithToken;
 use common::server::*;
 
 #[tokio::test]
@@ -28,7 +29,7 @@ async fn test_chat() {
         };
 
         let rsp = chan_client
-            .create(intercept_token(Request::new(channel.clone()), &token))
+            .create(Request::new(channel.clone()).with(&token))
             .await
             .unwrap()
             .into_inner();
@@ -59,7 +60,7 @@ async fn test_chat() {
         for token in tokens.iter() {
             let req_chan = channel.clone();
             let rsp = chan_client
-                .listen(intercept_token(Request::new(req_chan.clone()), token))
+                .listen(Request::new(req_chan.clone()).with(token))
                 .await
                 .unwrap()
                 .into_inner();
@@ -76,7 +77,7 @@ async fn test_chat() {
             let (tx, rx) = tokio::sync::mpsc::channel(10);
             senders.push(tx);
             let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-            let req = intercept_token(Request::new(stream), &chat_token);
+            let req = Request::new(stream).with(&chat_token);
 
             let inbound = chat_client.conn(req).await.unwrap().into_inner();
             receivers.push(inbound);
@@ -173,7 +174,7 @@ async fn test_chat_disconnect() {
         };
 
         let rsp = chan_client
-            .create(intercept_token(Request::new(channel.clone()), &token))
+            .create(Request::new(channel.clone()).with(&token))
             .await
             .unwrap()
             .into_inner();
@@ -202,7 +203,7 @@ async fn test_chat_disconnect() {
         for token in tokens.iter() {
             let req_chan = channel.clone();
             let rsp = chan_client
-                .listen(intercept_token(Request::new(req_chan.clone()), token))
+                .listen(Request::new(req_chan.clone()).with(token))
                 .await
                 .unwrap()
                 .into_inner();
@@ -218,7 +219,7 @@ async fn test_chat_disconnect() {
 
             let (tx, rx) = tokio::sync::mpsc::channel(10);
             let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-            let req = intercept_token(Request::new(stream), &chat_token);
+            let req = Request::new(stream).with(&chat_token);
 
             let mut inbound = chat_client.conn(req).await.unwrap().into_inner();
 
@@ -254,7 +255,7 @@ async fn test_conn_wrong_server() {
         };
 
         let rsp = chan_client
-            .create(intercept_token(Request::new(channel.clone()), &token))
+            .create(Request::new(channel.clone()).with(&token))
             .await
             .unwrap()
             .into_inner();
@@ -286,7 +287,7 @@ async fn test_conn_wrong_server() {
             tokio::time::sleep(Duration::from_secs(1)).await;
             let req_chan = channel.clone();
             let rsp = chan_client
-                .listen(intercept_token(Request::new(req_chan.clone()), token))
+                .listen(Request::new(req_chan.clone()).with(token))
                 .await
                 .unwrap()
                 .into_inner();
@@ -303,7 +304,7 @@ async fn test_conn_wrong_server() {
             let (tx, rx) = tokio::sync::mpsc::channel(10);
             senders.push(tx);
             let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-            let req = intercept_token(Request::new(stream), &chat_token);
+            let req = Request::new(stream).with(&chat_token);
 
             let inbound = chat_client.conn(req).await.unwrap().into_inner();
             receivers.push(inbound);
@@ -364,7 +365,7 @@ async fn test_report() {
         };
 
         let rsp = chan_client
-            .create(intercept_token(Request::new(channel.clone()), &token))
+            .create(Request::new(channel.clone()).with(&token))
             .await
             .unwrap()
             .into_inner();
@@ -389,19 +390,13 @@ async fn test_report() {
 
     // 3. try listen one channels at same time
     let rsp = chan_client
-        .listen(intercept_token(
-            Request::new(channels[0].clone()),
-            &tokens[0],
-        ))
+        .listen(Request::new(channels[0].clone()).with(&tokens[0]))
         .await;
 
     println!("rsp: {:?}", rsp);
     assert!(rsp.is_ok());
     let rsp = chan_client
-        .listen(intercept_token(
-            Request::new(channels[0].clone()),
-            &tokens[0],
-        ))
+        .listen(Request::new(channels[0].clone()).with(&tokens[0]))
         .await;
     println!("rsp: {:?}", rsp);
     assert!(rsp.is_err());
@@ -413,7 +408,7 @@ async fn test_report() {
             tokio::time::sleep(Duration::from_secs(1)).await;
             let req_chan = channel.clone();
             let rsp = chan_client
-                .listen(intercept_token(Request::new(req_chan.clone()), token))
+                .listen(Request::new(req_chan.clone()).with(token))
                 .await
                 .unwrap()
                 .into_inner();
@@ -429,14 +424,14 @@ async fn test_report() {
 
             let (tx, rx) = tokio::sync::mpsc::channel(10);
             let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-            let req = intercept_token(Request::new(stream), &chat_token);
+            let req = Request::new(stream).with(&chat_token);
 
             let _inbound = chat_client.conn(req).await.unwrap().into_inner();
 
             tokio::time::sleep(Duration::from_secs(3)).await;
             // check list channels
 
-            let req = intercept_token(Request::new(channel.clone()), &chat_token);
+            let req = Request::new(channel.clone()).with(&chat_token);
             let rsp = chan_client.list(req).await.unwrap().into_inner();
             println!("rsp: {:?}", rsp);
             assert_eq!(rsp.channels.len(), 1);
@@ -448,7 +443,7 @@ async fn test_report() {
             tokio::time::sleep(Duration::from_secs(3)).await;
 
             // check list channels
-            let req = intercept_token(Request::new(channel.clone()), &chat_token);
+            let req = Request::new(channel.clone()).with(&chat_token);
             let rsp = chan_client.list(req).await.unwrap().into_inner();
             println!("rsp: {:?}", rsp);
             assert_eq!(rsp.channels.len(), 1);

@@ -5,7 +5,6 @@ use echo_server::servers::chat_server::start_chat_server;
 use echo_server::servers::manager::start_manager_server;
 use sqlx_db_tester::TestPg;
 use std::time::Duration;
-use tonic::Request;
 pub async fn init_manager_server(
     server_port: u16,
 ) -> (Config, tokio::task::JoinHandle<()>, TestPg) {
@@ -40,15 +39,6 @@ pub async fn init_chat_server(
         .unwrap();
     tokio::time::sleep(Duration::from_secs(1)).await;
     (config, join_handle)
-}
-
-#[allow(dead_code)]
-pub fn intercept_token<T>(mut req: Request<T>, token: &str) -> Request<T> {
-    req.metadata_mut().insert(
-        "authorization",
-        format!("Bearer {}", token).parse().unwrap(),
-    );
-    req
 }
 
 #[allow(dead_code)]

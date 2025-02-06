@@ -1,6 +1,7 @@
 use crate::pb::Channel;
 use sqlx::Row;
 use sqlx::{postgres::PgRow, FromRow};
+use tonic::Request;
 
 impl FromRow<'_, PgRow> for Channel {
     fn from_row(row: &PgRow) -> sqlx::Result<Self, sqlx::Error> {
@@ -23,5 +24,19 @@ impl Validator for Channel {
     fn validate(&self) -> crate::Result<()> {
         // todo
         Ok(())
+    }
+}
+
+pub trait WithToken {
+    fn with(self, token: &str) -> Self;
+}
+
+impl<T> WithToken for Request<T> {
+    fn with(mut self, token: &str) -> Self {
+        self.metadata_mut().insert(
+            "authorization",
+            format!("Bearer {}", token).parse().unwrap(),
+        );
+        self
     }
 }

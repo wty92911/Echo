@@ -1,0 +1,8 @@
+[package]
+name = "echo_client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tonic = "0.12.3"
+abi = { path = "../abi" }

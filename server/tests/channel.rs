@@ -6,6 +6,7 @@ use std::time::Duration;
 use tonic::transport::Endpoint;
 use tonic::Request;
 mod common;
+use abi::traits::WithToken;
 use common::server::*;
 
 // async fn create_channels()
@@ -21,29 +22,29 @@ async fn test_channels() {
     let mut chan_client = ChannelServiceClient::new(conn.clone());
 
     let channel1 = chan_client
-        .create(intercept_token(
+        .create(
             Request::new(Channel {
                 id: 0,
                 name: "test1".to_string(),
                 users: vec![],
                 limit: 5,
-            }),
-            &token,
-        ))
+            })
+            .with(&token),
+        )
         .await
         .unwrap()
         .into_inner();
 
     let channel2 = chan_client
-        .create(intercept_token(
+        .create(
             Request::new(Channel {
                 id: 0,
                 name: "test2".to_string(),
                 users: vec![],
                 limit: 6,
-            }),
-            &token,
-        ))
+            })
+            .with(&token),
+        )
         .await
         .unwrap()
         .into_inner();
@@ -53,7 +54,7 @@ async fn test_channels() {
         ..Channel::default()
     };
     let rsp = chan_client
-        .list(intercept_token(Request::new(req_chan.clone()), &token))
+        .list(Request::new(req_chan.clone()).with(&token))
         .await
         .unwrap()
         .into_inner()
@@ -63,7 +64,7 @@ async fn test_channels() {
 
     req_chan.id = 0;
     let rsp = chan_client
-        .list(intercept_token(Request::new(req_chan.clone()), &token))
+        .list(Request::new(req_chan.clone()).with(&token))
         .await
         .unwrap()
         .into_inner()
@@ -73,14 +74,14 @@ async fn test_channels() {
     // try delete channel2
     req_chan.id = channel2.id;
     let rsp = chan_client
-        .delete(intercept_token(Request::new(req_chan.clone()), &token))
+        .delete(Request::new(req_chan.clone()).with(&token))
         .await;
     assert!(rsp.is_ok());
 
     // list again, should be 1
     req_chan.id = 0;
     let rsp = chan_client
-        .list(intercept_token(Request::new(req_chan.clone()), &token))
+        .list(Request::new(req_chan.clone()).with(&token))
         .await
         .unwrap()
         .into_inner()
@@ -94,7 +95,7 @@ async fn test_channels() {
     // try delete channel1, fail
     req_chan.id = channel1.id;
     let rsp = chan_client
-        .delete(intercept_token(Request::new(req_chan.clone()), &token))
+        .delete(Request::new(req_chan.clone()).with(&token))
         .await;
     assert!(rsp.is_err());
 
@@ -121,7 +122,7 @@ async fn test_listen() {
         };
 
         let rsp = chan_client
-            .create(intercept_token(Request::new(channel.clone()), &token))
+            .create(Request::new(channel.clone()).with(&token))
             .await
             .unwrap()
             .into_inner();
@@ -131,7 +132,7 @@ async fn test_listen() {
     // 1. try listen, expect server no found
     let req_chan = channels[0].clone();
     let rsp = chan_client
-        .listen(intercept_token(Request::new(req_chan.clone()), &token))
+        .listen(Request::new(req_chan.clone()).with(&token))
         .await;
     assert!(rsp.is_err());
     println!("listen failed: {:?}", rsp.unwrap_err());
@@ -150,7 +151,7 @@ async fn test_listen() {
     for channel in channels {
         let req_chan = channel.clone();
         let rsp = chan_client
-            .listen(intercept_token(Request::new(req_chan.clone()), &token))
+            .listen(Request::new(req_chan.clone()).with(&token))
             .await
             .unwrap()
             .into_inner();

@@ -5,6 +5,11 @@ pub enum Error {
     #[error("Database error")]
     Db(sqlx::Error),
 
+    #[error("Connect error")]
+    Connect(tonic::transport::Error),
+
+    #[error("Rpc error: `{0}`")]
+    Rpc(Status),
     // business logic error
     #[error("Invalid password")]
     InvalidPassword,
@@ -44,6 +49,17 @@ impl From<sqlx::Error> for Error {
     }
 }
 
+impl From<tonic::transport::Error> for Error {
+    fn from(e: tonic::transport::Error) -> Self {
+        Error::Connect(e)
+    }
+}
+
+impl From<tonic::Status> for Error {
+    fn from(e: tonic::Status) -> Self {
+        Error::Rpc(e)
+    }
+}
 impl From<Error> for Status {
     fn from(e: Error) -> Self {
         match e {
