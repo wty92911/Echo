@@ -23,11 +23,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let path = matches
         .get_one::<String>("config")
-        .map_or("./config/manager.yaml".to_string(), |s| s.clone());
+        .map_or("../config/chat.yaml".to_string(), |s| s.clone());
 
     let mgr_addr = matches
         .get_one::<String>("mgr_addr")
-        .map_or("127.0.0.1:8080".to_string(), |s| s.clone());
+        .map_or("127.0.0.1:50051".to_string(), |s| s.clone());
 
     let config = Config::load(path)?;
     let sql_helper = SqlHelper::new(&config.db).await?;

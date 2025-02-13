@@ -1,10 +1,15 @@
 [package]
+edition = "2021"
 name = "echo_client"
 version = "0.1.0"
-edition = "2021"
 
 [dependencies]
-tonic = "0.12.3"
 abi = { path = "../abi" }
+chrono = "0.4.39"
+cpal = "0.15.3"
+env_logger = "0.11.6"
+log = "0.4.25"
+ringbuffer = "0.15.0"
 tokio = "1.43.0"
 tokio-stream = "0.1.17"
+tonic = "0.12.3"

@@ -1,0 +1,9 @@
+[formatting]
+align_comments = false
+reorder_keys = true
+
+[[rule]]
+keys = ["package"]
+
+[rule.formatting]
+reorder_keys = true

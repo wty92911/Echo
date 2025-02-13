@@ -1,3 +1,5 @@
+use crate::audio::{Buffer, Microphone, Speaker, RING_BUFFER_SIZE};
+use crate::config::UserConfig;
 use abi::error::Error;
 use abi::pb::{
     channel_service_client::ChannelServiceClient, chat_service_client::ChatServiceClient,
@@ -6,27 +8,42 @@ use abi::pb::{
 use abi::pb::{LoginRequest, Message};
 use abi::traits::WithToken;
 use abi::Result;
+use cpal::traits::StreamTrait;
+use log::error;
+use ringbuffer::{AllocRingBuffer, RingBuffer};
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::Receiver;
 use tonic::transport::Endpoint;
 use tonic::Request;
+
 /// Audio Client
-#[allow(dead_code)]
-struct Client {
-    /// Token of logging in.
+pub struct Client {
+    // User ID, currently logged in.
+    user_id: Option<String>,
+
+    // User Config.
+    config: Arc<UserConfig>, // todo: support remote config
+
+    // Token of logging in.
     token: Option<String>,
 
-    /// User Service Client.
-    /// For now, addr is same as manager addr.
+    // User Service Client.
+    // For now, addr is same as manager addr.
     user_client: UserServiceClient<tonic::transport::Channel>,
 
-    /// Channel Manager Client. Manager addr must be provided at **new()**.
+    // Channel Manager Client. Manager addr must be provided at **new()**.
     mgr_client: ChannelServiceClient<tonic::transport::Channel>,
-    // /// Chat Token of trying to listen to some channel.
-    // chat_token: Option<String>,
 
-    // /// Chat Client to connect to some  channel on specific chat server of chat_addr.
-    // chat_client: Option<ChatServiceClient<tonic::transport::Channel>>,
+    // hold the audio data buffer from the listening channel.
+    buffer: Arc<Mutex<Buffer>>,
+
+    // hold the audio data of own microphone.
+    buf: Arc<Mutex<AllocRingBuffer<u8>>>,
+
+    speaker: Speaker,
+
+    microphone: Microphone,
 }
 
 /// Impl Client Methods for User Service
@@ -35,11 +52,17 @@ impl Client {
     pub async fn new(mgr_addr: String) -> Result<Client> {
         let conn = Endpoint::from_str(&mgr_addr)?.connect().await?;
         Ok(Client {
+            user_id: None,
+            config: Arc::new(UserConfig::default()),
             token: None,
             mgr_client: ChannelServiceClient::new(conn.clone()),
             user_client: UserServiceClient::new(conn),
-            // chat_token: None,
-            // chat_client: None,
+
+            buffer: Arc::new(Mutex::new(Buffer::new())),
+            buf: Arc::new(Mutex::new(AllocRingBuffer::new(RING_BUFFER_SIZE))),
+
+            speaker: Speaker::default(),
+            microphone: Microphone::default(),
         })
     }
 
@@ -59,6 +82,7 @@ impl Client {
     }
 
     pub async fn login(&mut self, user_id: String, password: String) -> Result<()> {
+        self.user_id = Some(user_id.clone());
         let req = LoginRequest { user_id, password };
         let res = self.user_client.login(req).await?.into_inner();
         self.token = Some(res.token);
@@ -82,6 +106,18 @@ impl Client {
         Ok(channel)
     }
 
+    /// Delete a channel.
+    pub async fn delete_channel(&mut self, id: i32) -> Result<()> {
+        let token = check_token(&self.token)?;
+        let req = Request::new(Channel {
+            id,
+            ..Default::default()
+        })
+        .with(token);
+        self.mgr_client.delete(req).await?;
+        Ok(())
+    }
+
     /// Get all channels(id = 0) or specific channel(id != 0)
     pub async fn get_channels(&mut self, id: i32) -> Result<Vec<Channel>> {
         let token = check_token(&self.token)?;
@@ -94,8 +130,8 @@ impl Client {
         Ok(rsp.channels)
     }
 
-    /// Listen to a channel.
-    pub async fn listen(&mut self, id: i32, input: Receiver<Message>) -> Result<Receiver<Message>> {
+    /// Connect to a channel.
+    async fn connect(&mut self, id: i32, input: Receiver<Message>) -> Result<Receiver<Message>> {
         let token = check_token(&self.token)?;
         let req = Request::new(Channel {
             id,
@@ -123,7 +159,63 @@ impl Client {
             Err(Error::ServerNotFound)
         }
     }
+
+    pub async fn communicate(
+        &mut self,
+        id: i32,
+        mut shutdown: tokio::sync::broadcast::Receiver<()>,
+    ) -> Result<()> {
+        let (tx, rx) = tokio::sync::mpsc::channel(32);
+        let mut rx = self.connect(id, rx).await?;
+        let speak_stream = self.speaker.play(self.buffer.clone(), self.config.clone());
+        speak_stream.play().unwrap();
+
+        let buffer = Arc::clone(&self.buffer);
+        let user_id = self.user_id.clone().unwrap();
+        let output = tokio::spawn(async move {
+            while let Some(msg) = rx.recv().await {
+                if msg.user_id != user_id {
+                    buffer.lock().unwrap().extend(msg.user_id, msg.data);
+                }
+            }
+        });
+
+        let input_stream = self
+            .microphone
+            .record(Arc::clone(&self.buf), self.config.clone());
+        input_stream.play().unwrap();
+
+        let buf = Arc::clone(&self.buf);
+        let user_id = self.user_id.clone().unwrap();
+        let input = tokio::spawn(async move {
+            loop {
+                let data = buf.lock().unwrap().drain().collect::<Vec<u8>>();
+                if let Err(e) = tx
+                    .send(Message {
+                        user_id: user_id.clone(),
+                        timestamp: chrono::Utc::now().timestamp(),
+                        data,
+                    })
+                    .await
+                {
+                    error!("error sending message: {}", e);
+                    break;
+                }
+            }
+        });
+
+        drop(speak_stream);
+        drop(input_stream);
+        // any of these can be cancelled
+        tokio::select! {
+            _ = shutdown.recv() => {},
+            _ = input => {},
+            _ = output => {},
+        }
+        Ok(())
+    }
 }
+
 fn check_token(token: &Option<String>) -> Result<&String> {
     if token.is_none() {
         Err(Error::TokenNotFound)

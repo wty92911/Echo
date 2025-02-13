@@ -130,8 +130,7 @@ message Message {
 }
 ```
 
-Use [cpal](https://docs.rs/cpal/latest/cpal/) as a kit to sample/play audio data.
-![audio](./images/client_audio.svg)
+
 
 We use postgres as the database.
 

@@ -1,33 +1,28 @@
 [package]
+edition = "2021"
 name = "echo_server"
 version = "0.1.0"
-edition = "2021"
 
 [dependencies]
-prost = "0.13"
-tokio = { version = "1.0", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-tonic-build = "0.12.3"
-tonic = "0.12.3"
-rand = "0.8"
-async-stream = "0.3.6"
-time = "0.3.37"
-log = "0.4.22"
-jsonwebtoken = "9.3.0"
-chrono = "0.4.39"
-sqlx = { version = "0.8.3", features = ["postgres", "runtime-tokio-rustls"] }
-tokio-stream = "0.1.17"
-password-hash = "0.5.0"
+abi = { path = "../abi" }
 argon2 = "0.5.3"
-thiserror = "2.0.11"
-serde_yaml = "0.9.34"
+async-stream = "0.3.6"
+async-trait = "0.1.86"
+chrono = "0.4.39"
+clap = "4.5.28"
+dashmap = "6.1.0"
 env_logger = "0.11.6"
 futures = "0.3.31"
+jsonwebtoken = "9.3.0"
+log = "0.4.22"
+password-hash = "0.5.0"
+prost = "0.13"
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9.34"
+sqlx = { version = "0.8.3", features = ["postgres", "runtime-tokio-rustls"] }
 sqlx-db-tester = "0.5.0"
-hyper = "1.5.2"
-tower = "0.5.2"
-http = "1.2.0"
-dashmap = "6.1.0"
-async-trait = "0.1.86"
-clap = "4.5.28"
-abi = { path = "../abi" }
+thiserror = "2.0.11"
+time = "0.3.37"
+tokio = { version = "1.0", features = ["full"] }
+tokio-stream = "0.1.17"
+tonic = "0.12.3"

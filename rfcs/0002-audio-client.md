@@ -22,8 +22,17 @@ Here are some questions to be considered:
 2. How to play audio in extreme cases (delay, backlog, )
 3. Pre-processing audio data in service side?
 
+
 # Reference-level explanation
 [reference-level-explanation]: #reference-level-explanation
+
+
+## Features:
+
+
+- volume
+-[] turn up/turn down
+-[] mute/set threshold
 
 # Drawbacks
 [drawbacks]: #drawbacks

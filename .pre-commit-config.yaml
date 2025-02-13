@@ -37,6 +37,12 @@ repos:
       #   language: rust
       #   files: \.rs$
       #   args: []
+      - id: taplo-fmt
+        name: taplo fmt
+        description: Format toml files with taplo.
+        entry: bash -c 'taplo fmt'
+        language: rust
+
       - id: cargo-check
         name: cargo check
         description: Check the package for errors.
