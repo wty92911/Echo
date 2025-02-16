@@ -3,45 +3,46 @@
 //! Use [`cpal`] to capture and play audio.
 //! Support volume control and audio mixing.
 
+use core::f32;
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::ops::Add;
 use std::sync::{Arc, Mutex};
 
 use crate::config::UserConfig;
-use crate::utils::{FromBytes, ToBytes};
+use crate::utils::Buffer;
 use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::{Device, Stream, SupportedStreamConfig};
-use ringbuffer::{AllocRingBuffer, RingBuffer};
+use ringbuffer::AllocRingBuffer;
 
-const SAMPLE_RATE: u32 = 44100;
+pub const SAMPLE_RATE: u32 = 44100;
 const MAX_PERCENT: u8 = 200;
-pub const RING_BUFFER_SIZE: usize = SAMPLE_RATE as usize;
 const DEFAULT_SAMPLE_FORMAT: cpal::SampleFormat = cpal::SampleFormat::F32;
 
-pub fn mix<T>(data: &mut [T], audio: HashMap<String, Vec<u8>>, config: &UserConfig)
+/// Mix audio data from different users according to volume config.
+/// Simply add all audio data together.
+pub fn mix<T>(data: &mut [T], audio: HashMap<String, Vec<T>>, config: &UserConfig, channels: usize)
 where
-    T: FromBytes + Into<f32> + From<f32> + Default + Clone + Copy + Add<Output = T>,
+    T: Debug + Into<f32> + From<f32> + Default + Clone + Copy + Add<Output = T>,
 {
     let mut mix_audio = vec![T::default(); data.len()];
-    for (name, audio) in audio.into_iter() {
-        // transfer bytes data to T data
-        let mut audio = <T>::from_bytes(audio);
-
+    for (name, mut audio) in audio.into_iter() {
         // apply other volume configs
         if let Some(factor) = config.other_volume.get(&name) {
             multiply(&mut audio, *factor);
         }
 
-        resize(&mut audio, data.len());
-
-        //
+        // resize(&mut audio, data.len());
         add(&mut mix_audio, &audio);
     }
     // apply own volume config
-    multiply(&mut mix_audio, config.output_volume);
+    // multiply(&mut mix_audio, config.output_volume);
     // add mix audio data to data
-    add(data, &mix_audio);
+    // add(data, &mix_audio);
+    for i in 0..data.len() {
+        data[i] = mix_audio[i / channels];
+    }
 
     // todo: normalize data
 }
@@ -131,6 +132,7 @@ impl Default for Speaker {
         Self { device, config }
     }
 }
+
 impl Speaker {
     pub fn new(device: Device, config: SupportedStreamConfig) -> Self {
         Self { device, config }
@@ -138,15 +140,17 @@ impl Speaker {
 
     /// Play audio data from `buf`.
     /// stop when returning [`Stream`] dropped.
-    pub fn play(&mut self, buf: Arc<Mutex<Buffer>>, config: Arc<UserConfig>) -> Stream {
+    pub fn play(&mut self, buf: Arc<Mutex<Buffer<f32>>>, config: Arc<UserConfig>) -> Stream {
+        let cnt = self.config.config().channels as usize;
         let stream = self
             .device
             .build_output_stream(
                 &self.config.config(),
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                     // react to stream events and read or write stream data here.
-                    let audio = buf.lock().unwrap().flush(data.len());
-                    mix(data, audio, &config);
+                    let audio = buf.lock().unwrap().flush(data.len() / cnt);
+
+                    mix(data, audio, &config, cnt);
                 },
                 move |_err| {
                     // react to errors here.
@@ -164,6 +168,7 @@ pub struct Microphone {
     device: Device,
     config: SupportedStreamConfig,
 }
+
 impl Default for Microphone {
     fn default() -> Self {
         let host = cpal::default_host();
@@ -181,6 +186,7 @@ impl Default for Microphone {
         Self::new(device, config)
     }
 }
+
 impl Microphone {
     pub fn new(device: Device, config: SupportedStreamConfig) -> Self {
         Self { device, config }
@@ -190,8 +196,8 @@ impl Microphone {
     /// stop when returning [`Stream`] dropped.
     pub fn record(
         &mut self,
-        buffer: Arc<Mutex<AllocRingBuffer<u8>>>,
-        config: Arc<UserConfig>,
+        buffer: Arc<Mutex<AllocRingBuffer<f32>>>,
+        _config: Arc<UserConfig>,
     ) -> Stream {
         let stream = self
             .device
@@ -199,9 +205,8 @@ impl Microphone {
                 &self.config.config(),
                 move |data: &[f32], _: &cpal::InputCallbackInfo| {
                     // apply user config
-                    let mut data = data.to_vec();
-                    multiply(&mut data, config.input_volume);
-                    buffer.lock().unwrap().extend(data.to_bytes());
+                    // multiply(&mut data, config.input_volume);
+                    buffer.lock().unwrap().extend(data.to_vec());
                 },
                 move |_err| {
                     // react to errors here.
@@ -213,40 +218,40 @@ impl Microphone {
     }
 }
 
-/// Buffer is holding audio data for each user.
-/// inner mutable, use [`Arc`] and [`Mutex`] to share data between threads.
-#[derive(Default)]
-pub struct Buffer {
-    data: HashMap<String, AllocRingBuffer<u8>>, // user - [audio data]
-}
+#[cfg(test)]
+mod test {
+    use std::{thread, time};
 
-impl Buffer {
-    pub fn new() -> Self {
-        Self {
-            data: HashMap::new(),
+    use crate::utils::RING_BUFFER_SIZE;
+
+    use super::*;
+    use cpal::traits::StreamTrait;
+    use ringbuffer::RingBuffer;
+
+    #[ignore = "only manual test"]
+    #[test]
+    fn test_audio() {
+        let config = Arc::new(UserConfig::default());
+        let buf = Arc::new(Mutex::new(AllocRingBuffer::new(RING_BUFFER_SIZE)));
+        let mut mic = Microphone::default();
+        dbg!(&mic.config);
+        let stream = mic.record(buf.clone(), config.clone());
+        stream.play().unwrap();
+
+        let mut speaker = Speaker::default();
+        dbg!(&speaker.config);
+        let buffer = Arc::new(Mutex::new(Buffer::new()));
+
+        let speaker_stream = speaker.play(buffer.clone(), config);
+        speaker_stream.play().unwrap();
+        thread::sleep(time::Duration::from_millis(3000));
+        let mut buf = buf.lock().unwrap();
+        if buf.len() > 0 {
+            let data = buf.to_vec();
+            println!("buf.len: {}", buf.len());
+            buf.clear();
+            buffer.lock().unwrap().extend("test_user".to_string(), data);
         }
-    }
-
-    /// Extend data for a user.
-    pub fn extend(&mut self, user: String, data: Vec<u8>) {
-        self.data
-            .entry(user)
-            .or_insert_with(|| AllocRingBuffer::new(RING_BUFFER_SIZE))
-            .extend(data);
-    }
-
-    /// Flush all users' data
-    pub fn flush(&mut self, length: usize) -> HashMap<String, Vec<u8>> {
-        let mut flushed = HashMap::new();
-        for (user, buffer) in self.data.iter_mut() {
-            let drained: Vec<u8> = buffer.drain().collect();
-            let remaining: Vec<u8> = drained.iter().skip(length).cloned().collect();
-            let flushed_data = drained.iter().take(length).cloned().collect();
-            flushed.insert(user.clone(), flushed_data);
-            buffer.extend(remaining);
-        }
-        flushed
+        thread::sleep(time::Duration::from_millis(3000));
     }
 }
-
-mod test {}

@@ -1,5 +1,7 @@
-use crate::audio::{Buffer, Microphone, Speaker, RING_BUFFER_SIZE};
+use crate::audio::{Microphone, Speaker};
 use crate::config::UserConfig;
+use crate::utils::{Buffer, RING_BUFFER_SIZE};
+use crate::utils::{FromBytes, ToBytes};
 use abi::error::Error;
 use abi::pb::{
     channel_service_client::ChannelServiceClient, chat_service_client::ChatServiceClient,
@@ -16,7 +18,6 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc::Receiver;
 use tonic::transport::Endpoint;
 use tonic::Request;
-
 /// Audio Client
 pub struct Client {
     // User ID, currently logged in.
@@ -36,10 +37,10 @@ pub struct Client {
     mgr_client: ChannelServiceClient<tonic::transport::Channel>,
 
     // hold the audio data buffer from the listening channel.
-    buffer: Arc<Mutex<Buffer>>,
+    buffer: Arc<Mutex<Buffer<f32>>>,
 
     // hold the audio data of own microphone.
-    buf: Arc<Mutex<AllocRingBuffer<u8>>>,
+    buf: Arc<Mutex<AllocRingBuffer<f32>>>,
 
     speaker: Speaker,
 
@@ -175,7 +176,11 @@ impl Client {
         let output = tokio::spawn(async move {
             while let Some(msg) = rx.recv().await {
                 if msg.user_id != user_id {
-                    buffer.lock().unwrap().extend(msg.user_id, msg.data);
+                    // todo: add audio_data field or define a serialization method
+                    buffer
+                        .lock()
+                        .unwrap()
+                        .extend(msg.user_id, FromBytes::from_bytes(msg.data));
                 }
             }
         });
@@ -189,7 +194,7 @@ impl Client {
         let user_id = self.user_id.clone().unwrap();
         let input = tokio::spawn(async move {
             loop {
-                let data = buf.lock().unwrap().drain().collect::<Vec<u8>>();
+                let data = buf.lock().unwrap().drain().collect::<Vec<f32>>().to_bytes();
                 if let Err(e) = tx
                     .send(Message {
                         user_id: user_id.clone(),
