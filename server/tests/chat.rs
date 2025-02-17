@@ -85,15 +85,15 @@ async fn test_chat() {
         // b. choose one send messages, check others' recv()
         let expected = vec![
             Message {
-                data: "hello".into(),
+                audio_data: "hello".into(),
                 ..Default::default()
             },
             Message {
-                data: "world".into(),
+                audio_data: "world".into(),
                 ..Default::default()
             },
             Message {
-                data: "hello world".into(),
+                audio_data: "hello world".into(),
                 ..Default::default()
             },
         ];
@@ -129,7 +129,7 @@ async fn check_inbound(
     while count < expected.len() {
         match timeout(timeout_duration, stream.message()).await {
             Ok(Ok(Some(msg))) => {
-                if msg.data != expected[count].data {
+                if msg.audio_data != expected[count].audio_data {
                     return Err(Status::internal(format!(
                         "Message mismatch at index {}: expected {:?}, got {:?}",
                         count, expected[count], msg
@@ -312,15 +312,15 @@ async fn test_conn_wrong_server() {
         // b. choose one send messages, check others' recv()
         let expected = vec![
             Message {
-                data: "hello".into(),
+                audio_data: "hello".into(),
                 ..Default::default()
             },
             Message {
-                data: "world".into(),
+                audio_data: "world".into(),
                 ..Default::default()
             },
             Message {
-                data: "hello world".into(),
+                audio_data: "hello world".into(),
                 ..Default::default()
             },
         ];

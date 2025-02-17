@@ -16,7 +16,7 @@ use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::{Device, Stream, SupportedStreamConfig};
 use ringbuffer::AllocRingBuffer;
 
-pub const SAMPLE_RATE: u32 = 44100;
+pub const SAMPLE_RATE: u32 = 44100; // so huge
 const MAX_PERCENT: u8 = 200;
 const DEFAULT_SAMPLE_FORMAT: cpal::SampleFormat = cpal::SampleFormat::F32;
 
@@ -26,7 +26,7 @@ pub fn mix<T>(data: &mut [T], audio: HashMap<String, Vec<T>>, config: &UserConfi
 where
     T: Debug + Into<f32> + From<f32> + Default + Clone + Copy + Add<Output = T>,
 {
-    let mut mix_audio = vec![T::default(); data.len()];
+    let mut mix_audio = vec![T::default(); data.len() / channels];
     for (name, mut audio) in audio.into_iter() {
         // apply other volume configs
         if let Some(factor) = config.other_volume.get(&name) {
@@ -37,11 +37,10 @@ where
         add(&mut mix_audio, &audio);
     }
     // apply own volume config
-    // multiply(&mut mix_audio, config.output_volume);
+    multiply(&mut mix_audio, config.output_volume);
     // add mix audio data to data
-    // add(data, &mix_audio);
     for i in 0..data.len() {
-        data[i] = mix_audio[i / channels];
+        data[i] = data[i] + mix_audio[i / channels];
     }
 
     // todo: normalize data
@@ -183,6 +182,7 @@ impl Default for Microphone {
             .find(|config| config.sample_format() == DEFAULT_SAMPLE_FORMAT)
             .map(|config| config.with_sample_rate(cpal::SampleRate(SAMPLE_RATE)))
             .unwrap();
+        assert!(config.channels() == 1); // for now we only support one channel mic.
         Self::new(device, config)
     }
 }

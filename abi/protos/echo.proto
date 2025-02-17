@@ -106,5 +106,5 @@ message LoginResponse {
 message Message {
   string user_id = 1;
   int64 timestamp = 2;
-  bytes data = 3;
+  bytes audio_data = 3; // one channel, 44.1kHz, f32
 }

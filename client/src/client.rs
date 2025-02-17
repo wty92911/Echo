@@ -180,7 +180,7 @@ impl Client {
                     buffer
                         .lock()
                         .unwrap()
-                        .extend(msg.user_id, FromBytes::from_bytes(msg.data));
+                        .extend(msg.user_id, FromBytes::from_bytes(msg.audio_data));
                 }
             }
         });
@@ -194,12 +194,12 @@ impl Client {
         let user_id = self.user_id.clone().unwrap();
         let input = tokio::spawn(async move {
             loop {
-                let data = buf.lock().unwrap().drain().collect::<Vec<f32>>().to_bytes();
+                let audio_data = buf.lock().unwrap().drain().collect::<Vec<f32>>().to_bytes();
                 if let Err(e) = tx
                     .send(Message {
                         user_id: user_id.clone(),
                         timestamp: chrono::Utc::now().timestamp(),
-                        data,
+                        audio_data,
                     })
                     .await
                 {

@@ -98,8 +98,9 @@ pub struct Message {
     pub user_id: ::prost::alloc::string::String,
     #[prost(int64, tag = "2")]
     pub timestamp: i64,
+    /// one channel, 44.1kHz, f32
     #[prost(bytes = "vec", tag = "3")]
-    pub data: ::prost::alloc::vec::Vec<u8>,
+    pub audio_data: ::prost::alloc::vec::Vec<u8>,
 }
 /// Generated client implementations.
 pub mod channel_service_client {
