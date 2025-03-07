@@ -3,6 +3,7 @@ use crate::config::UserConfig;
 use crate::utils::{Buffer, RING_BUFFER_SIZE};
 use crate::utils::{FromBytes, ToBytes};
 use abi::error::Error;
+use abi::pb::message::Content;
 use abi::pb::{
     channel_service_client::ChannelServiceClient, chat_service_client::ChatServiceClient,
     user_service_client::UserServiceClient, Channel, RegisterRequest,
@@ -177,10 +178,15 @@ impl Client {
             while let Some(msg) = rx.recv().await {
                 if msg.user_id != user_id {
                     // todo: add audio_data field or define a serialization method
-                    buffer
-                        .lock()
-                        .unwrap()
-                        .extend(msg.user_id, FromBytes::from_bytes(msg.audio_data));
+                    if let Some(content) = msg.content {
+                        match content {
+                            Content::Text(_) => todo!("handle text"),
+                            Content::AudioData(data) => buffer
+                                .lock()
+                                .unwrap()
+                                .extend(msg.user_id, FromBytes::from_bytes(data)),
+                        }
+                    }
                 }
             }
         });
@@ -199,7 +205,7 @@ impl Client {
                     .send(Message {
                         user_id: user_id.clone(),
                         timestamp: chrono::Utc::now().timestamp(),
-                        audio_data,
+                        content: Some(Content::AudioData(audio_data)),
                     })
                     .await
                 {

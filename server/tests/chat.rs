@@ -1,5 +1,6 @@
 use abi::pb::channel_service_client::ChannelServiceClient;
 use abi::pb::chat_service_client::ChatServiceClient;
+use abi::pb::message::Content;
 use abi::pb::{Channel, Message};
 use std::collections::HashSet;
 use std::str::FromStr;
@@ -85,15 +86,15 @@ async fn test_chat() {
         // b. choose one send messages, check others' recv()
         let expected = vec![
             Message {
-                audio_data: "hello".into(),
+                content: Some(Content::Text("hello".into())),
                 ..Default::default()
             },
             Message {
-                audio_data: "world".into(),
+                content: Some(Content::Text("world".into())),
                 ..Default::default()
             },
             Message {
-                audio_data: "hello world".into(),
+                content: Some(Content::Text("hello".into())),
                 ..Default::default()
             },
         ];
@@ -129,7 +130,7 @@ async fn check_inbound(
     while count < expected.len() {
         match timeout(timeout_duration, stream.message()).await {
             Ok(Ok(Some(msg))) => {
-                if msg.audio_data != expected[count].audio_data {
+                if msg.content != expected[count].content {
                     return Err(Status::internal(format!(
                         "Message mismatch at index {}: expected {:?}, got {:?}",
                         count, expected[count], msg
@@ -312,15 +313,15 @@ async fn test_conn_wrong_server() {
         // b. choose one send messages, check others' recv()
         let expected = vec![
             Message {
-                audio_data: "hello".into(),
+                content: Some(Content::Text("hello".to_string())),
                 ..Default::default()
             },
             Message {
-                audio_data: "world".into(),
+                content: Some(Content::Text("world".to_string())),
                 ..Default::default()
             },
             Message {
-                audio_data: "hello world".into(),
+                content: Some(Content::Text("hello".to_string())),
                 ..Default::default()
             },
         ];

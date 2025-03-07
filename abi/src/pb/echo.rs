@@ -98,9 +98,20 @@ pub struct Message {
     pub user_id: ::prost::alloc::string::String,
     #[prost(int64, tag = "2")]
     pub timestamp: i64,
-    /// one channel, 44.1kHz, f32
-    #[prost(bytes = "vec", tag = "3")]
-    pub audio_data: ::prost::alloc::vec::Vec<u8>,
+    #[prost(oneof = "message::Content", tags = "3, 4")]
+    pub content: ::core::option::Option<message::Content>,
+}
+/// Nested message and enum types in `Message`.
+pub mod message {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Content {
+        /// one channel, 44.1kHz, f32
+        #[prost(bytes, tag = "3")]
+        AudioData(::prost::alloc::vec::Vec<u8>),
+        /// text message content
+        #[prost(string, tag = "4")]
+        Text(::prost::alloc::string::String),
+    }
 }
 /// Generated client implementations.
 pub mod channel_service_client {
